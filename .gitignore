@@ -1,0 +1,8 @@
+.DS_Store
+.claude/
+CLAUDE.md
+TRELLIS.2/
+project_docs/
+*.glb
+*.env
+__pycache__/
