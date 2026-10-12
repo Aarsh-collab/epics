@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "units": "mm",
+  "length_mm": 120.0,
+  "sections": [
+    { "fraction": 0.25, "circumference_mm": 188.0, "max_width_mm": 64.0 },
+    { "fraction": 0.50, "circumference_mm": 182.0, "max_width_mm": 62.0 },
+    { "fraction": 0.75, "circumference_mm": 170.0, "max_width_mm": 58.0 }
+  ],
+  "notes": "Synthetic example values, not from a participant."
+}

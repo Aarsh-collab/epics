@@ -1,0 +1,28 @@
+[project]
+name = "epics-geometry"
+version = "0.1.0"
+description = "Measurement-led scaling experiments for 3D reference meshes"
+requires-python = ">=3.11"
+dependencies = [
+    "trimesh>=4.0,<6",
+    "numpy>=1.26,<3",
+    "scipy>=1.11,<2",
+    "pillow>=10,<13",
+]
+
+[project.scripts]
+epics-scale = "epics_geometry.scale:main"
+epics-scale-stub = "epics_geometry.stub:main"
+epics-measure-stub = "epics_geometry.stub:measure_main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/epics_geometry"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8,<10",
+]

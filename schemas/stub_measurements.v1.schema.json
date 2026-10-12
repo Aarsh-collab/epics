@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "epics-geometry/stub_measurements.v1.schema.json",
+  "title": "Stub measurements, version 1 (millimetres)",
+  "description": "Structural checks only. The scaler also rejects any section whose circumference is not between 2 x and pi x its max width (plus tolerance).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "length_mm", "sections"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "units": { "const": "mm" },
+    "length_mm": {
+      "type": "number", "exclusiveMinimum": 0, "maximum": 2000,
+      "description": "Straight distance along the stub's length direction from the selected base to the furthest tip."
+    },
+    "sections": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["fraction", "circumference_mm", "max_width_mm"],
+        "properties": {
+          "fraction": { "enum": [0.25, 0.5, 0.75] },
+          "circumference_mm": {
+            "type": "number", "exclusiveMinimum": 0,
+            "description": "Tape loop perpendicular to the length direction at fraction x length from the base."
+          },
+          "max_width_mm": {
+            "type": "number", "exclusiveMinimum": 0,
+            "description": "Largest straight-across span of the same cross-section (caliper or parallel straightedges)."
+          }
+        }
+      }
+    },
+    "notes": { "type": "string" }
+  }
+}

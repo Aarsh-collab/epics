@@ -6,3 +6,8 @@ project_docs/
 *.glb
 *.env
 __pycache__/
+.venv/
+.uv-cache/
+*.pyc
+*_scaled.glb
+*_scaled.json
