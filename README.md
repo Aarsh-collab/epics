@@ -1,12 +1,51 @@
 # EPICS prosthetics geometry project
 
-The guided capture frontend lives in [`web/`](web/README.md). Run `npm install` and `npm run dev` from that directory to upload photos, place landmarks, enter physical measurements, and export a review record.
-
 Exploratory workflow for turning a single image into a 3D reference mesh with [TRELLIS.2](https://github.com/microsoft/TRELLIS.2), then checking and adjusting its dimensions against physical measurements.
 
 Current stage: evaluating generated meshes and a measurement-based scaling workflow. A plausible mesh is **not** a verified anatomical scan or a ready-to-fit prosthetic surface. Any use involving a person requires appropriate review and validation.
 
 The upstream TRELLIS.2 checkout, participant/example photos, local planning documents, and machine-specific notes are intentionally not included in this repository.
+
+## End-to-end workflow (capture → Sol → reviewed mesh)
+
+| Stage | Where | Command |
+|---|---|---|
+| Capture photos, landmarks, 7 measurements | laptop browser | `cd web && npm install && npm run dev` → download `capture.json` |
+| Generate with TRELLIS.2, scale, validate | Sol GPU | `sbatch sol/run_pipeline.sbatch <capture_dir> <out_dir>` or `notebooks/sol_pipeline.ipynb` in Open OnDemand |
+| Human review, Rhino import | laptop | `scaled.glb` (metres) + `manifest.json` from `<out_dir>` |
+
+**One-time Sol setup** (on a GPU node: an OOD session terminal, or `salloc -p general -q public -G a100:1 -c 8 --mem=64G -t 3:00:00`):
+
+```bash
+git clone https://github.com/Aarsh-collab/epics.git && cd epics
+bash sol/setup_env.sh        # conda env + TRELLIS.2 (pinned commit) + CUDA extensions on /scratch/$USER/epics
+bash sol/register_kernel.sh  # optional: "EPICS TRELLIS.2" kernel for OOD Jupyter
+```
+
+`sol/env.sh` holds the paths and module loads; if the CUDA module isn't found, run `module avail cuda` and set
+`EPICS_CUDA_MODULE`. If `sbatch` rejects the partition/QoS, edit the `#SBATCH` lines in `sol/run_pipeline.sbatch`.
+
+**Each capture:** copy `capture.json` and both original photos into one folder on Sol (OOD file manager or `scp`), then
+
+```bash
+sbatch sol/run_pipeline.sbatch /scratch/$USER/captures/p01 /scratch/$USER/runs/p01
+# extra epics-pipeline flags go after the two paths, e.g. --no-remesh, --seed 7, --outer-shell
+```
+
+`<out_dir>` gets `generated.glb`, `scale_report.json`, `validation.json`, `scaled.glb` (only when the scaler matched all
+seven values) and `manifest.json` (input hash, model/seed/settings, GPU, Slurm job, TRELLIS.2 commit, stage statuses,
+`review_status: pending_human_review`). A run that stops early still writes the manifest saying where and why.
+
+Commands available after `uv sync` (laptop) or `setup_env.sh` (Sol):
+
+| Command | Needs GPU | Does |
+|---|---|---|
+| `epics-pipeline` | for generation only (`--glb` skips it) | all stages below, plus the manifest |
+| `epics-generate` | yes | TRELLIS.2 photo → GLB |
+| `epics-scale-stub` / `epics-measure-stub` | no | scale to 7 measurements / re-measure (see below) |
+| `epics-validate` | no | independent QA: length + circumferences vs. a GLB (`--axis-mode canonical` for scaler output) |
+| `epics-outer-shell` | no | experimental: keep the outer wall of a nested double shell |
+| `epics-scale` | no | length-only uniform scaling |
 
 ## First scaling experiment
 
