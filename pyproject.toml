@@ -16,6 +16,9 @@ epics-scale = "epics_geometry.scale:main"
 epics-scale-stub = "epics_geometry.stub:main"
 epics-measure-stub = "epics_geometry.stub:measure_main"
 epics-validate = "epics_geometry.validate:main"
+epics-outer-shell = "epics_geometry.outer_shell:main"
+epics-generate = "epics_geometry.trellis_run:main"
+epics-pipeline = "epics_geometry.pipeline:main"
 
 [build-system]
 requires = ["hatchling"]
