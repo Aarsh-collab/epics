@@ -77,7 +77,7 @@ def test_normalizes_stub_and_capture_formats():
             "sections": [{"fraction": 0.25, "circumference_mm": 190, "max_width_mm": 64}]}
     assert normalize_submitted(stub) == {"length_mm": 120, "stations": [{"name": "25%", "circumference_mm": 190}]}
     capture = {"schema_version": "capture.v1", "length": {"value": 120},
-               "sections": [{"fraction": 0.5, "value": None, "reliable": False}]}
+               "sections": [{"fraction": 0.5, "value": None, "reliability": "unable_to_measure"}]}
     out = normalize_submitted(capture)
     assert out["length_mm"] == 120 and out["stations"][0]["name"] == "50%" and out["stations"][0]["unmeasurable"]
 

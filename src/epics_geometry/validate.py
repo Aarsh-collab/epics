@@ -55,7 +55,7 @@ def normalize_submitted(data: Mapping[str, Any]) -> dict[str, Any]:
             stations.append({
                 "name": f"{round(float(s['fraction']) * 100)}%",
                 "circumference_mm": value,
-                "unmeasurable": value is None or s.get("reliable") is False,
+                "unmeasurable": value is None or s.get("reliability") == "unable_to_measure",
             })
         length = data.get("length", {}).get("value")
         return {"length_mm": length, "stations": stations}

@@ -12,7 +12,7 @@ Open the printed localhost URL. `npm run build` checks TypeScript and creates `d
 
 ## Implemented
 
-Main and side photo selection (JPG/PNG/WebP, 15 MB limit), image decoding, normalized start/tip placement, drag and numeric correction, fixed 25/50/75% station overlays, length and three physical circumferences in millimetres, unreliable-station flags, confirmation, and capture JSON download. Station distances are shown after length entry. Photo pixels never supply physical dimensions.
+Main and side photo selection (JPG/PNG/WebP, 15 MB limit), image decoding, normalized start/tip placement, drag and numeric correction, fixed 25/50/75% station overlays, length plus three physical circumferences and max widths in millimetres, unreliable-station flags, confirmation, and capture JSON download. Station distances are shown after length entry. Photo pixels never supply physical dimensions.
 
 ## Team handoff
 
@@ -20,6 +20,6 @@ Main and side photo selection (JPG/PNG/WebP, 15 MB limit), image decoding, norma
 
 Rohan can replace the guidance logic in `src/capture.ts`; markers can be moved as a pair and stations follow at fixed fractions. Independent station fractions are not supported by Aarsh's current contract.
 
-This is not Aarsh's scaler payload: his v1 schema additionally requires three maximum widths and accepts no photo-coordinate fields. An adapter or scaler update is required. The app explicitly marks this incompatibility in the export. Missing measurements may be exported for review but must not be submitted as a complete scaling job.
+The export also embeds `stub_measurements`, the scaler's input (`schemas/stub_measurements.v1.schema.json`): length plus circumference and max width at all three stations. It is `null` when any station is marked unreliable or a circumference/width pair is impossible (`2·w < c ≤ π·w`); such a capture can be reviewed but `epics-pipeline` will not scale it.
 
-TRELLIS generation, backend persistence/API, 3D preview, GLB downloads, and Samantha's independent evaluation are not integrated. Do not interpret confirmation or JSON download as a generated/scaled mesh result.
+TRELLIS.2 generation, scaling and validation run on Sol from the downloaded files (see the root README): copy `capture.json` and both original photos into one folder there. There is no live backend, 3D preview, or GLB download in the browser. Do not interpret confirmation or JSON download as a generated/scaled mesh result.
