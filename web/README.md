@@ -1,25 +1,37 @@
 # EPICS capture frontend
 
-Local React + TypeScript app. Photos stay in browser memory; nothing is uploaded to a service. Reloading clears the session.
+Local React + TypeScript capture flow. Photos stay in browser memory; nothing is uploaded. Reloading clears the session.
 
 ```powershell
 cd web
-npm install
+npm ci
 npm run dev
 ```
 
-Open the printed localhost URL. `npm run build` checks TypeScript and creates `dist/`. `npm test` checks station interpolation and measurement validation.
+## Verification
 
-## Implemented
+```powershell
+npm test
+npm run build
+python scripts/check_scaler_contract.py
+```
 
-Main and side photo selection (JPG/PNG/WebP, 15 MB limit), image decoding, normalized start/tip placement, drag and numeric correction, fixed 25/50/75% station overlays, length and three physical circumferences in millimetres, unreliable-station flags, confirmation, and capture JSON download. Station distances are shown after length entry. Photo pixels never supply physical dimensions.
+The export test calls the same `toScalerMeasurements` function used by the UI, validates the resulting JSON against the repository schema, and writes an ignored `.test-output/frontend-measurements.json`. The Python check passes that exact file unchanged to Aarsh's `parse_measurements`. Run tests before the Python check. GitHub Actions runs all three checks.
 
-## Team handoff
+## Measurements and export
 
-`capture.v1` uses normalized image coordinates with top-left origin: x increases rightward, y downward. Each section includes its fraction, interpolated point, physical distance from start, circumference value (null if unreliable), units, and reliability. Original photos are referenced by filename and pixel dimensions; image bytes are not embedded in JSON. Keep the original photos with the export.
+Collect straight length plus circumference and maximum width at fixed 25/50/75% stations, all in mm. Width is the largest straight-across span in the station plane, using calipers or parallel straightedges and a ruler. It is not inferred from the image. Photo percentages are guides only; physical station distances are fraction times entered length.
 
-Rohan can replace the guidance logic in `src/capture.ts`; markers can be moved as a pair and stations follow at fixed fractions. Independent station fractions are not supported by Aarsh's current contract.
+`Export scaler measurements` produces `stub-measurements.json` matching `schemas/stub_measurements.v1.schema.json`: numeric schema_version 1, mm units, length_mm, and three sections with fraction, circumference_mm, max_width_mm. It includes no photo fields. The UI mirrors the parser's positive-value, length-limit, and circumference/width consistency checks, including its upper-bound tolerance. Server validation remains required once an API exists.
 
-This is not Aarsh's scaler payload: his v1 schema additionally requires three maximum widths and accepts no photo-coordinate fields. An adapter or scaler update is required. The app explicitly marks this incompatibility in the export. Missing measurements may be exported for review but must not be submitted as a complete scaling job.
+Unreliable stations may proceed to review, but cannot produce a scaler-ready export. Under Developer handoff, a separate `capture.v2` record can retain landmarks, photo references, null values and reliability flags. This record is not scaler input. Both exports require confirmation.
 
-TRELLIS generation, backend persistence/API, 3D preview, GLB downloads, and Samantha's independent evaluation are not integrated. Do not interpret confirmation or JSON download as a generated/scaled mesh result.
+## Team contract and remaining integration
+
+This implements the **existing main-branch v1 schema**, provisionally pending the canonical-contract decision in issue #1. It does not claim that the team has finalized that decision. Keep photo metadata separate; any future contract change must update exporter, tests and adapter together.
+
+Normalized landmarks use top-left origin, x right, y down. Each capture station records a fixed fraction, interpolated photo point and physical distance from the base. Rohan can replace guidance in `src/capture.ts` and instructions in `src/App.tsx`; physical stations must remain consistent with the scaler.
+
+The report panel previews every current scaler and QA overall status with explicit example labels. It also accepts existing report JSON, preserving operator message/summary, warnings and limitations. Imported reports are not authenticated or linked to the current capture/GLB. No report status enables a mesh download. Samantha's Measurements branch is not merged: its input format, width checks and circumference definition still require alignment (issue #3).
+
+TRELLIS generation, backend API/storage, job submission, actual GLB preview/download and automatic independent evaluation are not integrated. Reference geometry does not establish anatomical accuracy or clinical fit.

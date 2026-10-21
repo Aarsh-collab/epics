@@ -13,3 +13,4 @@ __pycache__/
 *_scaled.json
 web/node_modules/
 web/dist/
+web/.test-output/
