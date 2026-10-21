@@ -11,3 +11,6 @@ __pycache__/
 *.pyc
 *_scaled.glb
 *_scaled.json
+web/node_modules/
+web/dist/
+web/.test-output/
