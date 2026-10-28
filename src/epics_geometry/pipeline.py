@@ -24,6 +24,7 @@ from .stub import scale_stub
 from . import validate
 
 CAPTURE_FILE = "capture.json"
+PREP_DIR = "prep"  # approved photo preparation inside a capture folder (photo_prep)
 
 
 def _sha256(path: Path) -> str:
@@ -52,6 +53,13 @@ def read_capture(capture_dir: Path) -> tuple[dict, Path, dict]:
     image = capture_dir / photo["filename"]
     if not image.is_file():
         raise FileNotFoundError(f"generation photo {image} not found; copy it next to {CAPTURE_FILE}")
+    if capture.get("preparation"):
+        # Generate from exactly the prepared photo the user approved.
+        prepared = capture_dir / PREP_DIR / "prepared.png"
+        want = capture["preparation"].get("prepared_sha256")
+        if not prepared.is_file() or _sha256(prepared) != want:
+            raise ValueError("the approved prepared photo is missing or changed; prepare the photo again")
+        image = prepared
     measurements = capture.get("stub_measurements")
     if measurements is None:
         raise MeasurementError(
@@ -105,6 +113,14 @@ def run(
             image = image or capture_image
             measurements = measurements or capture_measurements
             manifest["capture"] = {"dir": str(capture_dir), "created_at": capture.get("created_at")}
+            if capture.get("preparation"):
+                record = json.loads((Path(capture_dir) / PREP_DIR / "prep.json").read_text())
+                manifest["preparation"] = {**capture["preparation"], "settings": record.get("settings"),
+                                           "warnings": record.get("warnings"), "face": record.get("face")}
+                (out_dir / "prepared.png").write_bytes(Path(image).read_bytes())
+                manifest["limitations"].append(
+                    "The photo was cut at Start before generation; the end face is a synthetic visual cue, "
+                    "not the real cross-section.")
         if measurements is None:
             raise ValueError("no measurements: pass a capture folder or a measurements JSON")
         if not isinstance(measurements, dict):
@@ -122,7 +138,8 @@ def run(
             from .trellis_run import TrellisSettings, generate_glb
 
             glb = out_dir / "generated.glb"
-            manifest["stages"]["generate"] = generate_glb(Path(image), glb, settings or TrellisSettings())
+            manifest["stages"]["generate"] = generate_glb(Path(image), glb, settings or TrellisSettings(),
+                                                          model_input_path=out_dir / "model_input.png")
         else:
             manifest["stages"]["generate"] = {"skipped": True, "glb": str(glb)}
         manifest["stages"]["generate"]["sha256"] = _sha256(Path(glb))
@@ -130,10 +147,31 @@ def run(
         stage = "outer_shell"
         to_scale = Path(glb)
         if outer_shell:
-            from .outer_shell import extract
+            from .outer_shell import ShellError, extract
 
             shell_glb = out_dir / "outer_shell.glb"
-            manifest["stages"]["outer_shell"] = extract(to_scale, shell_glb)
+            try:
+                shell = extract(to_scale, shell_glb, review=out_dir / "outer_shell_review.glb")
+            except ShellError as exc:
+                shell = {**exc.report, "status": "refused", "reason": str(exc)}
+            _write_json(out_dir / "outer_shell_report.json", shell)
+            manifest["stages"]["outer_shell"] = {
+                "status": shell["status"], "reason": shell.get("reason"),
+                "report": str(out_dir / "outer_shell_report.json"),
+                "removed_pieces": shell.get("removed_pieces"), "fused_pieces": shell.get("fused_pieces"),
+                "review_flags": shell.get("review_flags"),
+            }
+            if shell["status"] != "cleaned":
+                manifest["status"] = "cleanup_refused"
+                manifest["failed_stage"] = "outer_shell"
+                manifest["error"] = {"type": "ShellError", "message": shell["reason"]}
+                manifest["hint"] = ("Outer-wall cleanup stopped; generated.glb is unchanged and "
+                                    "outer_shell_review.glb shows the pieces it found.")
+                return manifest
+            manifest["limitations"].append(
+                "Outer-wall cleanup removed or fused generated pieces by geometric rules; "
+                "check outer_shell_report.json and the review mesh."
+            )
             to_scale = shell_glb
 
         stage = "scale"
@@ -184,7 +222,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--measurements", type=Path, help="stub_measurements v1 JSON (overrides the capture)")
     parser.add_argument("--glb", type=Path, help="existing GLB: skip TRELLIS.2 generation")
     parser.add_argument("--outer-shell", action="store_true",
-                        help="keep only the outer wall of a nested double shell before scaling")
+                        help="keep the outer wall, drop hidden or detached pieces and repair small "
+                             "defects before scaling")
     parser.add_argument("--overwrite", action="store_true", help="allow a non-empty output folder")
     add_settings_args(parser)
     args = parser.parse_args(argv)

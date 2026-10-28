@@ -9,6 +9,15 @@ dependencies = [
     "scipy>=1.11,<2",
     "pillow>=10,<13",
     "networkx>=3,<4",
+    "manifold3d>=3.1,<4",
+]
+
+[project.optional-dependencies]
+# Web service for the DGX Spark deployment (deploy/spark/); the TRELLIS.2 image already has these.
+server = [
+    "fastapi>=0.110",
+    "python-multipart>=0.0.9",
+    "uvicorn>=0.29",
 ]
 
 [project.scripts]
@@ -19,6 +28,7 @@ epics-validate = "epics_geometry.validate:main"
 epics-outer-shell = "epics_geometry.outer_shell:main"
 epics-generate = "epics_geometry.trellis_run:main"
 epics-pipeline = "epics_geometry.pipeline:main"
+epics-server = "epics_geometry.server:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -30,4 +40,5 @@ packages = ["src/epics_geometry"]
 [dependency-groups]
 dev = [
     "pytest>=8,<10",
+    "httpx>=0.27",
 ]

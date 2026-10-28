@@ -108,3 +108,35 @@ def test_cli(tmp_path, stub_glb, capsys):
     m.write_text(json.dumps(targets_for(stub_glb)))
     assert main(["--measurements", str(m), "--glb", str(stub_glb), "--out", str(tmp_path / "out")]) == 0
     assert "pending human review" in capsys.readouterr().out
+
+
+def test_outer_shell_cleanup_before_scaling(tmp_path):
+    from test_outer_shell import arm, write
+
+    single = write(tmp_path / "single.glb", arm())
+    inner = arm(flip=True, shift=1.5, a=30.5, b=26.5, length=117.0, tip=28.5)
+    double = write(tmp_path / "double.glb", arm() + inner)
+    out = tmp_path / "out"
+    manifest = run(out, measurements=targets_for(single), glb=double, outer_shell=True)
+    assert manifest["status"] == "complete", manifest.get("error")
+    stage = manifest["stages"]["outer_shell"]
+    assert stage["status"] == "cleaned" and stage["removed_pieces"] == [2]
+    report = json.loads((out / "outer_shell_report.json").read_text())
+    assert report["pieces"][1]["decision"] == "removed as the inner wall"
+    assert (out / "outer_shell.glb").is_file() and (out / "outer_shell_review.glb").is_file()
+    assert any("cleanup" in line for line in manifest["limitations"])
+
+
+def test_outer_shell_refusal_keeps_original(tmp_path):
+    from test_outer_shell import arm, write
+
+    side_by_side = write(tmp_path / "two.glb", arm() + [(v + [0.1, 0, 0], f, uv) for v, f, uv in arm()])
+    before = side_by_side.read_bytes()
+    out = tmp_path / "out"
+    manifest = run(out, measurements=targets_for(write(tmp_path / "single.glb", arm())),
+                   glb=side_by_side, outer_shell=True)
+    assert manifest["status"] == "cleanup_refused" and manifest["failed_stage"] == "outer_shell"
+    assert "inner-wall checks" in manifest["error"]["message"]
+    assert side_by_side.read_bytes() == before
+    assert not (out / "outer_shell.glb").exists() and not (out / "scaled.glb").exists()
+    assert json.loads((out / "outer_shell_report.json").read_text())["status"] == "refused"

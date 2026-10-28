@@ -128,9 +128,12 @@ def _section_perimeter(mesh, long_axis, center, projection) -> tuple[float | Non
 
 def _mesh_defects(mesh: trimesh.Trimesh) -> dict[str, Any]:
     try:
-        components = mesh.split(only_watertight=False)
-        component_count = len(components)
-        component_faces = sorted((int(len(c.faces)) for c in components), reverse=True)
+        # Label faces by connected component instead of mesh.split(), which copies the
+        # texture into every component: thousands of seam-split pieces exhausted 100+ GB.
+        labels = trimesh.graph.connected_component_labels(mesh.face_adjacency, node_count=len(mesh.faces))
+        counts = np.bincount(labels)
+        component_count = len(counts)
+        component_faces = sorted((int(c) for c in counts), reverse=True)
     except Exception:
         component_count, component_faces = None, []
     try:

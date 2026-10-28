@@ -1,6 +1,6 @@
 # EPICS capture frontend
 
-Local React + TypeScript app. Photos stay in browser memory; nothing is uploaded to a service. Reloading clears the session.
+React + TypeScript app. Photos stay in browser memory until the user submits a capture; submitting uploads both photos and the record to the EPICS service (`src/epics_geometry/server.py`, hosted on the lab DGX Spark). Reloading clears an unsubmitted session. Leaving or reloading the result page deletes the job (photos and meshes) on the server; the browser asks first if nothing was downloaded.
 
 ```powershell
 cd web
@@ -22,4 +22,4 @@ Rohan can replace the guidance logic in `src/capture.ts`; markers can be moved a
 
 The export also embeds `stub_measurements`, the scaler's input (`schemas/stub_measurements.v1.schema.json`): length plus circumference and max width at all three stations. It is `null` when any station is marked unreliable or a circumference/width pair is impossible (`2·w < c ≤ π·w`); such a capture can be reviewed but `epics-pipeline` will not scale it.
 
-TRELLIS.2 generation, scaling and validation run on Sol from the downloaded files (see the root README): copy `capture.json` and both original photos into one folder there. There is no live backend, 3D preview, or GLB download in the browser. Do not interpret confirmation or JSON download as a generated/scaled mesh result.
+After the passcode, **Generate reference mesh** submits the capture; the job page polls status and links `scaled.glb` (metres), `manifest.json` and the reports. Every result is pending human review. **Download capture.json only** still supports the Sol route (see the root README). There is no 3D preview in the browser yet. `npm run dev` proxies `/api` to a local `epics-server` on port 8000.

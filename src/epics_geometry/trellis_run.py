@@ -25,6 +25,7 @@ from pathlib import Path
 PIPELINE_TYPES = {"512": "512", "1024": "1024_cascade", "1536": "1536_cascade"}
 
 
+
 @dataclass(frozen=True)
 class TrellisSettings:
     model: str = "microsoft/TRELLIS.2-4B"
@@ -83,8 +84,16 @@ def runtime_info() -> dict:
     return info
 
 
-def generate_glb(image_path: Path, output_path: Path, settings: TrellisSettings = TrellisSettings()) -> dict:
-    """Run TRELLIS.2 on one image, write a GLB, and return a run record."""
+def generate_glb(image_path: Path, output_path: Path, settings: TrellisSettings = TrellisSettings(),
+                 model_input_path: Path | None = None) -> dict:
+    """Run TRELLIS.2 on one image, write a GLB, and return a run record.
+
+    An RGBA image with a transparent background (``photo_prep``) is used as is:
+    TRELLIS.2's preprocessing skips its own background removal for it and only
+    resizes, crops to the foreground and composites on black. That preprocessing
+    is called here rather than inside ``pipeline.run`` so the exact model input
+    can be saved to ``model_input_path``; the result is the same.
+    """
     os.environ.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     if settings.resolution not in PIPELINE_TYPES:
@@ -103,10 +112,15 @@ def generate_glb(image_path: Path, output_path: Path, settings: TrellisSettings 
 
     t0 = time.perf_counter()
     image = Image.open(image_path)
+    has_alpha = image.mode == "RGBA"
+    if settings.preprocess_image:
+        image = pipeline.preprocess_image(image)
+        if model_input_path is not None:
+            image.save(model_input_path)
     mesh = pipeline.run(
         image,
         seed=settings.seed,
-        preprocess_image=settings.preprocess_image,
+        preprocess_image=False,
         pipeline_type=PIPELINE_TYPES[settings.resolution],
     )[0]
     mesh.simplify(16777216)  # nvdiffrast limit
@@ -136,6 +150,8 @@ def generate_glb(image_path: Path, output_path: Path, settings: TrellisSettings 
     return {
         "image": str(image_path),
         "glb": str(output_path),
+        "input_has_alpha": has_alpha,
+        "model_input": str(model_input_path) if model_input_path and settings.preprocess_image else None,
         "settings": asdict(settings),
         "runtime": runtime_info(),
         "timing": timing,

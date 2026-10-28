@@ -47,6 +47,25 @@ Commands available after `uv sync` (laptop) or `setup_env.sh` (Sol):
 | `epics-outer-shell` | no | experimental: keep the outer wall of a nested double shell |
 | `epics-scale` | no | length-only uniform scaling |
 
+## Hosted service on the DGX Spark
+
+The same pipeline also runs as a passcode-protected web service on the lab's DGX Spark: the capture app
+uploads `capture.json` and both photos, one GPU worker runs `epics-pipeline` jobs in order, and the page
+offers `scaled.glb`, `manifest.json` and the reports for download. Code: `src/epics_geometry/server.py`;
+deployment: `deploy/spark/`.
+
+```bash
+bash deploy/spark/deploy.sh   # from this Mac: build web/, sync tracked files to ~/epics-app/repo, restart
+```
+
+On the Spark, `~/epics-app/` holds `env` (`EPICS_PASSCODE=...`, mode 600, never committed), `data/jobs/`
+(uploads and results, deleted when the user leaves the result page, or 1 hour after a job finishes if that signal never arrives), and `hf-cache/` (TRELLIS.2, DINOv3 and RMBG weights). The
+container `epics-app` reuses the `trellis2:flashattn-render` image, runs as `hithesh`, and binds only
+`127.0.0.1:8090`; a tunnel provides the public HTTPS URL (see `deploy/spark/README.md`).
+
+Local development: `EPICS_PASSCODE=dev EPICS_COOKIE_SECURE=0 uv run --extra server epics-server` (port 8000)
+and `cd web && npm run dev`, which proxies `/api` to it. Without CUDA, jobs stop at the generate stage.
+
 ## First scaling experiment
 
 This first stage sets **overall length only**. It applies one uniform scale factor
