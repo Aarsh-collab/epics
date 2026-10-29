@@ -24,9 +24,9 @@ To change the passcode, edit `~/epics-app/env` and re-run `up.sh`; existing sess
 ## Gated models
 
 TRELLIS.2 loads `facebook/dinov3-vitl16-pretrain-lvd1689m` and `briaai/RMBG-2.0`, both gated on Hugging
-Face. The `hithesh` token is not authorized for DINOv3 (403), so jobs currently stop at `generate`. Request
-access on both model pages with an HF account, create a read token, save it as `~/epics-app/hf-token`
-(mode 600), and re-run `up.sh`.
+Face. The `hithesh` account token is not authorized for DINOv3 (403); an authorized read token is saved as
+`~/epics-app/hf-token` (mode 600), and jobs generate. To replace it, request access on both model pages,
+create a read token, save it there, and re-run `up.sh`.
 
 ## Public URL: Cloudflare quick tunnel
 

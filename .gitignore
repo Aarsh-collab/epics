@@ -1,6 +1,5 @@
 .DS_Store
 .claude/
-CLAUDE.md
 TRELLIS.2/
 project_docs/
 *.glb
@@ -15,3 +14,4 @@ web/node_modules/
 web/dist/
 epics-trellis-*.out
 runs/
+output/
