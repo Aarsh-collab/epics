@@ -149,6 +149,24 @@ Last full test run: 114 Python tests and 4 web tests passing, with a clean web b
 - Remote: `origin https://github.com/Aarsh-collab/epics.git`. **The repository is public.** Never commit secrets, passcodes, tunnel URLs, participant or test photos, or generated meshes (`*.glb` is gitignored).
 - `main` is the shared branch. Work happened on `integrate-sol` and was fast-forwarded into `main`.
 
+## Where we left off (2026-11-04)
+
+- **Roadmap doc:** "EPICS feature roadmap: difficulty and priority" (Claude Doc, https://claude.ai/artifact/SQTJadCpUMKE2eDRxUbrcR). It rates six features by difficulty and current importance.
+- **Suggested order:**
+  1. Test the photo cut on 10 to 20 real, approved photos, with the cut on and off and the same seed. It has only been tried on `arm_clean.png`. Log each run: flat Start end? anything invented? cleanup pass? scaling match? tip kept?
+  2. Fix the known errors:
+     - The validator's watertight check counts UV seams.
+     - Cleanup is slow: about 150 s on the 247k-face arm, about 110 s of it in `_visible`.
+     - The scaler stops on tiny stray pieces when cleanup is off.
+     - TB-001 has not been confirmed from a website run.
+     - The tunnel URL changes on every restart.
+  3. Split inner and outer walls that join at the cut rim. This is the main blocker. Approach: find the rim, cut along it, keep the side visible from outside, then cap the end. Fallback: rebuild the outer surface by shrink-wrap or voxel remesh and copy the texture back, and say so in the report.
+  4. Side photo (TB-003): make it optional now. Later, add a side-view shape check that compares the cut outline's width along the limb with the mesh seen from the side. Feeding both photos into TRELLIS multi-image is only an experiment.
+  5. Bad-photo gate: rule-based checks (blur, exposure, framing, RMBG mask confidence, clutter, resolution), with thresholds set from step 1's results. A learned score comes later, once labelled runs exist. No hosted vision APIs.
+  6. Scale to more users. Step 1 is splitting GPU work from CPU work in the worker. Today `server.py` has one process with one worker thread, an in-memory `queue.Queue` (max 5, `EPICS_MAX_QUEUE`), `job.json` files on local disk, and one shared passcode. A real queue (Redis/Postgres), separate GPU and CPU worker containers, object storage, user accounts and Sol as extra capacity wait for real users and approvals.
+- **Waiting on the user:** should the side photo become optional now? There is an open comment on this in the roadmap doc.
+- **Not started:** none of the six items has code changes yet.
+
 ## Open work (next steps first)
 
 1. **Split inner and outer walls that join at the cut rim.** Prepared photos give a clean tube, but TRELLIS.2 fuses its inner wall to the outer one at the Start rim, so cleanup refuses it and nothing reaches scaling yet. This is the next mesh step.
