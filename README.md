@@ -49,6 +49,11 @@ Commands available after `uv sync` (laptop) or `setup_env.sh` (Sol):
 
 ## Hosted service on the DGX Spark
 
+The capture Review step includes a [photo-quality gate](docs/photo_quality.md)
+before generation. Local checks flag blur, lighting, framing, resolution and
+background-removal issues. Defaults are provisional: soft mode requires warning
+acknowledgement; optional strict mode blocks flagged or unavailable checks.
+
 The same pipeline also runs as a passcode-protected web service on the lab's DGX Spark: the capture app
 uploads `capture.json`, the required main photo, and an optional side photo. One GPU worker runs `epics-pipeline` jobs in order, and the page
 offers `scaled.glb`, `manifest.json` and the reports for download. Code: `src/epics_geometry/server.py`;

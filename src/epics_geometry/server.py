@@ -17,6 +17,7 @@ Environment:
     EPICS_RETENTION_HOURS delete finished jobs nobody discarded after this (default 1)
     EPICS_MAX_QUEUE       reject new jobs while this many are waiting (default 5)
     EPICS_COOKIE_SECURE   "0" to allow the session cookie over plain http (tests)
+    EPICS_QUALITY_MODE    soft (default, acknowledge warnings) or strict (retake required)
 
 A finished job is reference geometry pending human review, exactly as
 ``epics-pipeline`` reports it; the service adds no accuracy claim of its own.
@@ -44,7 +45,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
-from . import pipeline
+from . import pipeline, photo_quality
 from .measurements import MeasurementError, parse_measurements
 
 COOKIE = "epics_session"
@@ -302,6 +303,8 @@ def _check_capture(capture: dict) -> list[str]:
 def _job_view(jobs: Jobs, job: dict) -> dict:
     view = {k: job.get(k) for k in ("id", "status", "created", "started", "finished", "options", "error")}
     view["position"] = jobs.position(job["id"]) if job["status"] == "queued" else None
+    capture = json.loads((jobs.root / job["id"] / "input" / pipeline.CAPTURE_FILE).read_text())
+    view["photo_quality"] = capture.get("photo_quality")
     out = jobs.root / job["id"] / "out"
     manifest_path = out / "manifest.json"
     if job["status"] == "done" and manifest_path.is_file():
@@ -324,9 +327,11 @@ def _job_view(jobs: Jobs, job: dict) -> dict:
 
 def create_app(passcode: str, data_dir: Path, *, web_dist: Path | None = None, max_queue: int = 5,
                retention_hours: float = 1, cookie_secure: bool = True, run=None, start_worker: bool = True,
-               prep_mask=None) -> FastAPI:
+               prep_mask=None, quality_mode: str = "soft") -> FastAPI:
     if not passcode:
         raise ValueError("EPICS_PASSCODE must be set")
+    if quality_mode not in ("soft", "strict"):
+        raise ValueError("EPICS_QUALITY_MODE must be soft or strict")
     token = hmac.new(passcode.encode(), b"epics-session-v1", hashlib.sha256).hexdigest()
     jobs = Jobs(data_dir, max_queue=max_queue, retention_hours=retention_hours, run=run)
     if start_worker:
@@ -336,6 +341,30 @@ def create_app(passcode: str, data_dir: Path, *, web_dist: Path | None = None, m
     app = FastAPI(title="EPICS reference mesh service", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.jobs = jobs
     preps = Preparations(data_dir, mask_fn=prep_mask)
+
+    def assess_photo(data: bytes, landmarks: dict, prep_id: str | None = None):
+        """Use original pixels and an existing, matching mask; never run a second GPU model."""
+        import numpy as np
+
+        landmarks = {"start": landmarks.get("start"), "tip": landmarks.get("tip")}
+        mask = None
+        if prep_id:
+            path = preps.dir(prep_id)
+            record = json.loads((path / "prep.json").read_text())
+            if (hashlib.sha256(data).hexdigest() != record["original_sha256"]
+                    or landmarks != record["landmarks_normalized"]):
+                raise HTTPException(409, "The prepared photo is out of date. Prepare the current photo and markers again.")
+            with Image.open(path / "mask.png") as image:
+                mask = np.asarray(image, dtype=float) / 255
+        try:
+            report = photo_quality.evaluate(data, mask=mask, start=landmarks.get("start"), tip=landmarks.get("tip"))
+        except (ValueError, TypeError, KeyError) as exc:
+            raise HTTPException(400, str(exc))
+        report = photo_quality.decision(report, quality_mode)
+        # An acknowledgement is specific to these pixels, landmarks, mask and policy.
+        binding = json.dumps({"report": report, "landmarks": landmarks, "photo": hashlib.sha256(data).hexdigest()}, sort_keys=True)
+        report["review_token"] = hashlib.sha256(binding.encode()).hexdigest()
+        return report
 
     def authed(request: Request) -> bool:
         return hmac.compare_digest(request.cookies.get(COOKIE, ""), token)
@@ -402,15 +431,17 @@ def create_app(passcode: str, data_dir: Path, *, web_dist: Path | None = None, m
             photos[upload.filename] = data
         if set(photos) != set(names):
             raise HTTPException(400, f"upload the photos named in the capture: {', '.join(names)}")
+        main = next(p["filename"] for p in capture["photos"] if p.get("role") == "generation")
+        landmarks = capture.get("landmarks") or {}
+        if not isinstance(landmarks, dict):
+            raise HTTPException(400, "capture landmarks must be an object")
+        current = {"start": landmarks.get("model_start"), "tip": landmarks.get("stub_endpoint")}
         options = {"outer_shell": form.get("outer_shell") == "true", "remesh": form.get("remesh") != "false"}
         prep_dir = None
         if form.get("preparation"):
             # The approved preview must be of this photo and these landmarks; otherwise it is out of date.
             prep_dir = preps.dir(str(form.get("preparation")))
             record = json.loads((prep_dir / "prep.json").read_text())
-            main = next(p["filename"] for p in capture["photos"] if p.get("role") == "generation")
-            landmarks = capture.get("landmarks") or {}
-            current = {"start": landmarks.get("model_start"), "tip": landmarks.get("stub_endpoint")}
             if (hashlib.sha256(photos[main]).hexdigest() != record["original_sha256"]
                     or current != record["landmarks_normalized"]):
                 raise HTTPException(409, "The prepared photo is out of date: the photo or the Start/Tip markers "
@@ -419,8 +450,39 @@ def create_app(passcode: str, data_dir: Path, *, web_dist: Path | None = None, m
                                       "prepared_sha256": record["prepared_sha256"],
                                       "original_sha256": record["original_sha256"]}
             options["preparation"] = record["settings"]["cap"]
+        from starlette.concurrency import run_in_threadpool
+
+        quality = await run_in_threadpool(assess_photo, photos[main], current, str(form["preparation"]) if prep_dir else None)
+        if quality["status"] == "block" or (quality["status"] == "warn" and form.get("quality_ack") != quality["review_token"]):
+            return JSONResponse({"detail": "Retake the photo or review the photo-quality warnings before generation.",
+                                 "photo_quality": quality}, status_code=422)
+        capture["photo_quality"] = {**quality, "acknowledged": quality["status"] == "warn"}
         job = jobs.submit(capture, photos, options, prep_dir)
         return JSONResponse(_job_view(jobs, job), status_code=201)
+
+    @app.post("/api/photo-quality")
+    async def check_quality(request: Request):
+        require(request)
+        length = request.headers.get("content-length")
+        if length is None or not length.isdigit():
+            raise HTTPException(411, "Content-Length required")
+        if int(length) > MAX_PHOTO_BYTES + 64 * 1024:
+            raise HTTPException(413, "Upload is larger than one 15 MB photo")
+        form = await request.form(max_files=1, max_fields=2, max_part_size=64 * 1024)
+        upload = form.get("photo")
+        if upload is None or isinstance(upload, str):
+            raise HTTPException(400, "send the main photo as 'photo'")
+        try:
+            landmarks = json.loads(form.get("landmarks") or "{}")
+            if not isinstance(landmarks, dict):
+                raise ValueError()
+        except (TypeError, ValueError):
+            raise HTTPException(400, "landmarks must be an object with start and tip coordinates")
+        data = await upload.read()
+        _check_photo(upload.filename or "photo", data)
+        from starlette.concurrency import run_in_threadpool
+
+        return await run_in_threadpool(assess_photo, data, landmarks, str(form["preparation"]) if form.get("preparation") else None)
 
     @app.post("/api/preparations")
     async def prepare(request: Request):
@@ -497,6 +559,7 @@ def main() -> None:
         max_queue=int(os.environ.get("EPICS_MAX_QUEUE", "5")),
         retention_hours=float(os.environ.get("EPICS_RETENTION_HOURS", "1")),
         cookie_secure=os.environ.get("EPICS_COOKIE_SECURE", "1") != "0",
+        quality_mode=os.environ.get("EPICS_QUALITY_MODE", "soft"),
     )
     uvicorn.run(app, host=os.environ.get("EPICS_HOST", "0.0.0.0"), port=int(os.environ.get("EPICS_PORT", "8000")),
                 proxy_headers=True, forwarded_allow_ips="*")
