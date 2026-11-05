@@ -16,6 +16,13 @@ Main and side photo selection (JPG/PNG/WebP, 15 MB limit), image decoding, norma
 
 ## Team handoff
 
+On Review, prepare the photo, approve the preview, then choose **Check photo quality**.
+Review any retake guidance and acknowledge warnings before generation. Changing the
+main photo, markers or preparation requires another check. The server also enforces
+the gate, saves the report with the job, and shows it with the results. Checks use
+provisional thresholds; passing does not verify anatomy or fit. See
+[photo-quality behavior and strict-mode configuration](../docs/photo_quality.md).
+
 `capture.v1` uses normalized image coordinates with top-left origin: x increases rightward, y downward. Each section includes its fraction, interpolated point, physical distance from start, circumference value (null if unreliable), units, and reliability. Original photos are referenced by filename and pixel dimensions; image bytes are not embedded in JSON. Keep the original photos with the export.
 
 Rohan can replace the guidance logic in `src/capture.ts`; markers can be moved as a pair and stations follow at fixed fractions. Independent station fractions are not supported by Aarsh's current contract.
