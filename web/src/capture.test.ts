@@ -1,5 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { sectionProblem, station, stubMeasurements, validMm } from './capture';
+import { hasMainPhoto, photoEntries, photoRecords, sectionProblem, station, stubMeasurements, validMm, type CapturePhoto } from './capture';
+
+describe('optional side photo handoff', () => {
+  const photo = (name: string): CapturePhoto => ({ file: new File(['test'], name, { type: 'image/png' }), url: `blob:${name}`, width: 640, height: 480 });
+  const main = photo('main.png'), side = photo('side.png');
+  it('allows the main photo alone and exports only its metadata and upload', () => {
+    expect(hasMainPhoto([main, null])).toBe(true);
+    expect(photoEntries([main, null]).map(entry => entry.photo.file)).toEqual([main.file]);
+    expect(photoRecords([main, null])).toEqual([{ role: 'generation', filename: 'main.png', width_px: 640, height_px: 480 }]);
+  });
+  it('preserves the two-photo workflow and omits a removed side photo', () => {
+    expect(photoRecords([main, side]).map(p => p.role)).toEqual(['generation', 'review']);
+    expect(photoEntries([main, side]).map(entry => entry.photo.file)).toEqual([main.file, side.file]);
+    expect(photoRecords([main, null]).some(p => p.role === 'review')).toBe(false);
+  });
+  it('does not let the optional side photo stand in for the required main photo', () => {
+    expect(hasMainPhoto([null, null])).toBe(false);
+    expect(hasMainPhoto([null, side])).toBe(false);
+    expect(photoRecords([null, side])[0].role).toBe('review');
+  });
+});
 describe('capture handoff geometry', () => {
   it('places stations from the proximal landmark even when the axis is reversed', () => {
     expect(station({ x: .8, y: .9 }, { x: .2, y: .1 }, .25)).toEqual({ x: .65, y: .7 });

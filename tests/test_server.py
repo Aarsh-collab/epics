@@ -108,6 +108,29 @@ def test_rejects_bad_uploads(client, stub_glb):
     assert not_image.status_code == 400
 
 
+def test_main_photo_only_generates_scaled_download(client, stub_glb, tmp_path):
+    login(client)
+    record = capture(targets_for(stub_glb))
+    record["photos"] = record["photos"][:1]
+    response = submit(client, record, photos=("main.png",))
+    assert response.status_code == 201, response.text
+    job = wait(client, response.json()["id"])
+    assert job["result"]["status"] == "complete", job
+    assert "scaled.glb" in job["files"]
+    assert not list((tmp_path / "data" / "jobs" / job["id"]).rglob("side.png"))
+
+
+@pytest.mark.parametrize("roles", [("review",), ("generation", "generation"), ("generation", "unknown")])
+def test_rejects_ambiguous_photo_roles(client, stub_glb, roles):
+    login(client)
+    record = capture(targets_for(stub_glb))
+    record["photos"] = [{"role": role, "filename": name}
+                        for role, name in zip(roles, ("main.png", "side.png"))]
+    response = submit(client, record, photos=tuple(p["filename"] for p in record["photos"]))
+    assert response.status_code == 400
+    assert "exactly one generation photo" in response.json()["detail"]
+
+
 def test_unscalable_mesh_reports_failure(client, stub_glb):
     login(client)
     m = targets_for(stub_glb)
@@ -202,10 +225,12 @@ def prepared_capture(stub_glb, landmarks=LANDMARKS):
     return record
 
 
-def submit_prepared(client, record, prep_id, photo=None):
+def submit_prepared(client, record, prep_id, photo=None, *, side=True):
+    files = [("photos", ("main.png", photo or limb_png(), "image/png"))]
+    if side:
+        files.append(("photos", ("side.png", png(), "image/png")))
     return client.post("/api/jobs", data={"capture": json.dumps(record), "preparation": prep_id},
-                       files=[("photos", ("main.png", photo or limb_png(), "image/png")),
-                              ("photos", ("side.png", png(), "image/png"))])
+                       files=files)
 
 
 def test_preparation_needs_passcode(prep_client):
@@ -213,7 +238,8 @@ def test_preparation_needs_passcode(prep_client):
     assert prep_client.get("/api/preparations/" + "a" * 24 + "/files/preview.png").status_code == 401
 
 
-def test_preparation_preview_and_job_use_the_approved_image(prep_client, stub_glb, tmp_path):
+@pytest.mark.parametrize("side", [True, False])
+def test_preparation_preview_and_job_use_the_approved_image(prep_client, stub_glb, tmp_path, side):
     login(prep_client)
     response = prepare(prep_client)
     assert response.status_code == 201, response.text
@@ -226,7 +252,10 @@ def test_preparation_preview_and_job_use_the_approved_image(prep_client, stub_gl
     stored = tmp_path / "data" / "preps" / prep["id"]
     assert {"original.png", "mask.png", "prepared.png", "prep.json"} <= {p.name for p in stored.iterdir()}
 
-    response = submit_prepared(prep_client, prepared_capture(stub_glb), prep["id"])
+    record = prepared_capture(stub_glb)
+    if not side:
+        record["photos"] = record["photos"][:1]
+    response = submit_prepared(prep_client, record, prep["id"], side=side)
     assert response.status_code == 201, response.text
     job = wait(prep_client, response.json()["id"])
     assert not stored.exists()  # moved into the job, so it is deleted with it

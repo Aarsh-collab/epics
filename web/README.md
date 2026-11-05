@@ -1,6 +1,6 @@
 # EPICS capture frontend
 
-React + TypeScript app. Photos stay in browser memory until the user submits a capture; submitting uploads both photos and the record to the EPICS service (`src/epics_geometry/server.py`, hosted on the lab DGX Spark). Reloading clears an unsubmitted session. Leaving or reloading the result page deletes the job (photos and meshes) on the server; the browser asks first if nothing was downloaded.
+React + TypeScript app. Photos stay in browser memory until the user submits a capture; submitting uploads the main photo, the optional side photo if selected, and the record to the EPICS service (`src/epics_geometry/server.py`, hosted on the lab DGX Spark). Reloading clears an unsubmitted session. Leaving or reloading the result page deletes the job (photos and meshes) on the server; the browser asks first if nothing was downloaded.
 
 ```powershell
 cd web
@@ -8,11 +8,11 @@ npm install
 npm run dev
 ```
 
-Open the printed localhost URL. `npm run build` checks TypeScript and creates `dist/`. `npm test` checks station interpolation and measurement validation.
+Open the printed localhost URL. `npm run build` checks TypeScript and creates `dist/`. `npm test` checks station interpolation, measurement validation, and optional-photo handoff.
 
 ## Implemented
 
-Main and side photo selection (JPG/PNG/WebP, 15 MB limit), image decoding, normalized start/tip placement, drag and numeric correction, fixed 25/50/75% station overlays, length plus three physical circumferences and max widths in millimetres, unreliable-station flags, confirmation, and capture JSON download. Station distances are shown after length entry. Photo pixels never supply physical dimensions.
+Required main and optional side photo selection (JPG/PNG/WebP, 15 MB limit), image decoding, normalized start/tip placement, drag and numeric correction, fixed 25/50/75% station overlays, length plus three physical circumferences and max widths in millimetres, unreliable-station flags, confirmation, and capture JSON download. Station distances are shown after length entry. Photo pixels never supply physical dimensions.
 
 ## Team handoff
 
@@ -22,4 +22,4 @@ Rohan can replace the guidance logic in `src/capture.ts`; markers can be moved a
 
 The export also embeds `stub_measurements`, the scaler's input (`schemas/stub_measurements.v1.schema.json`): length plus circumference and max width at all three stations. It is `null` when any station is marked unreliable or a circumference/width pair is impossible (`2·w < c ≤ π·w`); such a capture can be reviewed but `epics-pipeline` will not scale it.
 
-After the passcode, **Generate reference mesh** submits the capture; the job page polls status and links `scaled.glb` (metres), `manifest.json` and the reports. Every result is pending human review. **Download capture.json only** still supports the Sol route (see the root README). There is no 3D preview in the browser yet. `npm run dev` proxies `/api` to a local `epics-server` on port 8000.
+After the passcode, **Generate reference mesh** submits the capture; the job page polls status and links `scaled.glb` (metres), `manifest.json` and the reports. Every result is pending human review. **Download capture.json only** still supports the Sol route (see the root README). The result page previews available meshes and shows the optional side photo for human review. The side photo does not affect generation, scaling, or automated validation; no automated side-view comparison is performed. See [Task 5 behavior](../docs/side_photo.md). `npm run dev` proxies `/api` to a local `epics-server` on port 8000.

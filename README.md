@@ -25,7 +25,7 @@ bash sol/register_kernel.sh  # optional: "EPICS TRELLIS.2" kernel for OOD Jupyte
 `sol/env.sh` holds the paths and module loads; if the CUDA module isn't found, run `module avail cuda` and set
 `EPICS_CUDA_MODULE`. If `sbatch` rejects the partition/QoS, edit the `#SBATCH` lines in `sol/run_pipeline.sbatch`.
 
-**Each capture:** copy `capture.json` and both original photos into one folder on Sol (OOD file manager or `scp`), then
+**Each capture:** copy `capture.json` and the selected original photo(s) into one folder on Sol (OOD file manager or `scp`), then
 
 ```bash
 sbatch sol/run_pipeline.sbatch /scratch/$USER/captures/p01 /scratch/$USER/runs/p01
@@ -50,9 +50,10 @@ Commands available after `uv sync` (laptop) or `setup_env.sh` (Sol):
 ## Hosted service on the DGX Spark
 
 The same pipeline also runs as a passcode-protected web service on the lab's DGX Spark: the capture app
-uploads `capture.json` and both photos, one GPU worker runs `epics-pipeline` jobs in order, and the page
+uploads `capture.json`, the required main photo, and an optional side photo. One GPU worker runs `epics-pipeline` jobs in order, and the page
 offers `scaled.glb`, `manifest.json` and the reports for download. Code: `src/epics_geometry/server.py`;
-deployment: `deploy/spark/`.
+deployment: `deploy/spark/`. The side photo is shown with results for human review only; it does not
+affect generation or automated validation. See [side photo behavior](docs/side_photo.md).
 
 ```bash
 bash deploy/spark/deploy.sh   # from this Mac: build web/, sync tracked files to ~/epics-app/repo, restart

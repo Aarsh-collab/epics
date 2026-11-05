@@ -286,8 +286,9 @@ def _check_capture(capture: dict) -> list[str]:
         raise HTTPException(400, "photo filenames may only use letters, digits, spaces and . _ - ( ) +")
     if len(set(names)) != len(names):
         raise HTTPException(400, "the two photos need different filenames")
-    if not any(p.get("role") == "generation" for p in photos):
-        raise HTTPException(400, "capture has no photo with role 'generation'")
+    roles = [p.get("role") for p in photos]
+    if roles.count("generation") != 1 or any(role not in ("generation", "review") for role in roles):
+        raise HTTPException(400, "capture must name exactly one generation photo and at most one optional review photo")
     measurements = capture.get("stub_measurements")
     if measurements is None:
         raise HTTPException(400, "This capture has incomplete measurements, so it cannot be scaled.")
