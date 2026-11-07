@@ -72,7 +72,7 @@ class FitLimits:
 
 def _analyze(path: Path):
     instances, info = load_instances(path)
-    topo = sg.build_topology(instances)
+    topo = sg.build_topology(instances, drop_fragments=True)
     alignment = sg.detect_alignment(topo)
     return instances, info, topo, alignment
 

@@ -229,6 +229,68 @@ def _repair(s: _Surface, faces: np.ndarray, diagonal: float) -> tuple[np.ndarray
     return merged, mask, log
 
 
+def _split_joined_rim(s, faces, diagonal):
+    """Recognize nested, oppositely wound walls attached at a planar terminal rim."""
+    mf = s.mid[faces]
+    points = s.mv[np.unique(mf)]
+    axis = np.linalg.svd(points - points.mean(axis=0), full_matrices=False)[2][0]
+    height = s.mv @ axis
+    for end in (min(points @ axis), max(points @ axis)):
+        rim = (np.abs(height[mf] - end) <= 0.005 * diagonal).all(axis=1)
+        if rim.all():
+            continue
+        remaining = faces[~rim]
+        merged = s.mid[remaining]
+        adjacency, shared = trimesh.graph.face_adjacency(faces=merged, return_edges=True)
+        # Two walls can share rim edges directly, without any bridging triangles.
+        at_end = np.abs(height[shared] - end) <= 0.005 * diagonal
+        adjacency = adjacency[~at_end.all(axis=1)]
+        labels = trimesh.graph.connected_component_labels(adjacency, node_count=len(remaining))
+        if len(np.unique(labels)) != 2:
+            continue
+        walls = []
+        for label in (0, 1):
+            wall = remaining[labels == label]
+            loops, corner = _boundary_loops(s.mid[wall], wall)
+            if len(loops) != 1 or _edge_stats(s.mid[wall])["nonmanifold_edges"]:
+                break
+            ids = np.array([corner[i] for i in loops[0]])
+            edge = s.v[ids]
+            if np.max(np.abs(edge @ axis - end)) > 0.005 * diagonal:
+                break
+            centre = edge.mean(axis=0)
+            spokes = edge - centre
+            winding = np.cross(spokes, np.roll(spokes, -1, axis=0)) @ axis
+            if not (np.all(winding > 0) or np.all(winding < 0)):
+                break
+            cap_centre = s.add_vertex(centre, s.uv[ids[0]])
+            # Give the artificial cap a single local texture colour.
+            cap_ids = np.arange(len(s.v), len(s.v) + len(ids))
+            s.v = np.vstack((s.v, s.v[ids]))
+            s.uv = np.vstack((s.uv, np.repeat(s.uv[ids[:1]], len(ids), axis=0)))
+            s.mid = np.concatenate((s.mid, s.mid[ids]))
+            cap = np.column_stack((cap_ids, np.roll(cap_ids, -1), np.full(len(ids), cap_centre)))
+            closed = np.vstack((wall, cap))
+            area, volume = _area_volume(s.mv, s.mid[closed])
+            walls.append((volume, area, closed, len(wall)))
+        if len(walls) != 2:
+            continue
+        inner, outer = sorted(walls, key=lambda w: w[0])
+        if outer[0] <= 0 or not (SHELL_RATIO[0] < -inner[0] / outer[0] < 1
+                                  and SHELL_RATIO[0] < inner[1] / outer[1] < 1):
+            continue
+        solid = _manifold(s, outer[2])
+        cavity = _manifold(s, inner[2][:, ::-1])
+        if (cavity - solid).volume() > 1e-6 * cavity.volume():
+            continue
+        patches = np.arange(len(outer[2])) >= outer[3]
+        log = {"joined_rim": {"inner_faces_removed": inner[3], "rim_faces_removed": int(rim.sum()),
+                              "cap_faces": int(patches.sum())}}
+        removed = np.vstack((inner[2][:inner[3]], faces[rim]))
+        return outer[2], patches, log, removed
+    return None
+
+
 def _manifold(s: _Surface, faces: np.ndarray):
     import manifold3d
 
@@ -256,9 +318,11 @@ def _inside(solid, points: np.ndarray, diagonal: float) -> np.ndarray:
     """Majority vote of three ray-parity tests per point."""
     votes = np.zeros(len(points), dtype=int)
     reach = 3 * diagonal
-    for d in PARITY_DIRECTIONS:
+    for i, d in enumerate(PARITY_DIRECTIONS):
         d = d / np.linalg.norm(d)
-        votes += [_ray_hits(solid, p, p + d * reach, 1e-9) % 2 for p in points]
+        pending = votes == 1 if i == 2 else np.ones(len(points), dtype=bool)
+        votes[pending] += np.fromiter((_ray_hits(solid, p, p + d * reach, 1e-9) % 2
+                                       for p in points[pending]), dtype=int)
     return votes >= 2
 
 
@@ -459,7 +523,16 @@ def extract(source: Path, target: Path, review: Path | None = None) -> dict:
         welded.append(piece["piece"])
     report["repairs"]["welded_pieces"] = welded
     try:
-        outer_faces, patch_mask, repair_log = _repair(s, f[outer_sel], diagonal)
+        try:
+            split = _split_joined_rim(s, f[outer_sel], diagonal) if len(walls) == 1 else None
+        except ShellError:
+            split = None
+        joined_removed = []
+        if split is None:
+            outer_faces, patch_mask, repair_log = _repair(s, f[outer_sel], diagonal)
+        else:
+            outer_faces, patch_mask, repair_log, discarded = split
+            joined_removed.append(trimesh.Trimesh(s.v, discarded, process=False))
         solid = _manifold(s, outer_faces)
     except ShellError as exc:
         refuse(f"outer wall (piece 1) could not be repaired: {exc}", exc.report)
@@ -500,18 +573,20 @@ def extract(source: Path, target: Path, review: Path | None = None) -> dict:
         pf = mf[piece["_faces"]]
         pts = _sample(s.mv, pf, rng)
         inside = _inside(solid, pts, diagonal)
+        crossing = _crossing_edges(solid, s.mv, pf)
+        if inside.all() and crossing == 0:
+            piece.update(inside_fraction=1.0, visible_fraction=0.0, crossing_edges=0,
+                         decision="removed: hidden inside the outer wall")
+            continue
         visible = _visible(solid, pts, diagonal, ~inside)
         dist, closest, tri_index = _distance(pts, s.mv, outer_mf)
         k = int(np.argmin(dist))
         gap = float(dist[k])
         piece["_contact"] = (pts[k], closest[k], tri_index[k])
-        crossing = _crossing_edges(solid, s.mv, pf)
         piece.update(inside_fraction=float(inside.mean()), visible_fraction=float(visible.mean()),
                      gap=gap, gap_fraction_of_diagonal=gap / diagonal, crossing_edges=crossing)
         touching = crossing > 0 or gap <= gap_limit
-        if inside.all() and crossing == 0:
-            piece["decision"] = "removed: hidden inside the outer wall"
-        elif touching and not visible.any():
+        if touching and not visible.any():
             piece["decision"] = "removed: touches the outer wall but is hidden from every outside direction"
         elif touching:
             piece["decision"] = "fuse: touches or crosses the outer wall and is visible from outside"
@@ -616,7 +691,7 @@ def extract(source: Path, target: Path, review: Path | None = None) -> dict:
     if review is not None:
         kept = trimesh.Trimesh(out_v, out_f, process=False)
         patches = trimesh.Trimesh(out_v, out_f[patch_mask], process=False) if patch_mask.any() else None
-        _write_review(Path(review), kept, removed_meshes(report["removed_pieces"]), patches)
+        _write_review(Path(review), kept, joined_removed + removed_meshes(report["removed_pieces"]), patches)
         report["review"] = str(review)
     return public()
 

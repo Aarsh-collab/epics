@@ -5,7 +5,7 @@ from PIL import Image
 
 from epics_geometry.glb_io import load_instances
 from epics_geometry.outer_shell import CONTACT_GAP, ShellError, extract
-from epics_geometry.stub import measure_glb
+from epics_geometry.stub import measure_glb, scale_stub
 from epics_geometry.synthetic import stub_meshes
 
 TEXTURE = Image.fromarray(np.full((16, 16, 3), (180, 120, 90), dtype=np.uint8))
@@ -195,3 +195,38 @@ def test_three_large_surfaces_refused(tmp_path):
     other = [(v + [0.1, 0, 0], f, uv) for v, f, uv in arm()]
     with pytest.raises(ShellError, match="3 large surfaces"):
         run(tmp_path, arm() + inner + other)
+
+
+@pytest.mark.parametrize("shared_edge", [False, True])
+def test_joined_rim_keeps_outer_geometry(tmp_path, shared_edge):
+    body = arm()[0]
+    v, f, uv = body
+    inner = (0.97 * v, f[:, ::-1], uv)
+    n = SIZE["n_theta"]
+    ring = np.vstack([v[:n], inner[0][:n]])
+    i = np.arange(n)
+    j = (i + 1) % n
+    annulus = np.vstack([np.column_stack([j, i, n+i]), np.column_stack([j, n+i, n+j])])
+    if shared_edge:
+        inner[0][:n+1] = v[:n+1]
+        parts = [body, inner]
+    else:
+        parts = [body, inner, (ring, annulus, np.zeros((2*n, 2)))]
+    _, report = run(tmp_path, parts)
+    assert report["repairs"]["outer_wall"]["joined_rim"]["cap_faces"] == n
+    assert closed(tmp_path / "clean.glb")
+    expected = write(tmp_path / "expected.glb", arm())
+    assert measure_glb(expected)["length_mm"] == pytest.approx(measure_glb(tmp_path / "clean.glb")["length_mm"])
+
+
+def test_detached_fragment_excluded_from_measurements(tmp_path):
+    single = write(tmp_path / "single.glb", arm())
+    stray = write(tmp_path / "stray.glb", arm() + [sphere([100, 0, 185], 2.5)])
+    assert measure_glb(stray)["length_mm"] == pytest.approx(measure_glb(single)["length_mm"])
+    truth = measure_glb(single)
+    target = {"schema_version": 1, "units": "mm", "length_mm": truth["length_mm"],
+              "sections": [{k: row[k] for k in ("fraction", "circumference_mm", "max_width_mm")}
+                           for row in truth["sections"]]}
+    report = scale_stub(stray, target, tmp_path / "scaled.glb")
+    assert report["status"] == "measurements_matched", report
+    assert any("detached fragment" in w for w in report["warnings"])
