@@ -161,11 +161,11 @@ Last full test run: 114 Python tests and 4 web tests passing, with a clean web b
      - TB-001 has not been confirmed from a website run.
      - The tunnel URL changes on every restart.
   3. Split inner and outer walls that join at the cut rim. This is the main blocker. Approach: find the rim, cut along it, keep the side visible from outside, then cap the end. Fallback: rebuild the outer surface by shrink-wrap or voxel remesh and copy the texture back, and say so in the report.
-  4. Side photo (TB-003): make it optional now. Later, add a side-view shape check that compares the cut outline's width along the limb with the mesh seen from the side. Feeding both photos into TRELLIS multi-image is only an experiment.
+  4. Side photo (TB-003): optional side photo DONE (merged 2026-11-07, `docs/side_photo.md`). Later, add a side-view shape check that compares the cut outline's width along the limb with the mesh seen from the side. Feeding both photos into TRELLIS multi-image is only an experiment.
   5. Bad-photo gate: rule-based checks (blur, exposure, framing, RMBG mask confidence, clutter, resolution), with thresholds set from step 1's results. A learned score comes later, once labelled runs exist. No hosted vision APIs.
   6. Scale to more users. Step 1 is splitting GPU work from CPU work in the worker. Today `server.py` has one process with one worker thread, an in-memory `queue.Queue` (max 5, `EPICS_MAX_QUEUE`), `job.json` files on local disk, and one shared passcode. A real queue (Redis/Postgres), separate GPU and CPU worker containers, object storage, user accounts and Sol as extra capacity wait for real users and approvals.
-- **Waiting on the user:** should the side photo become optional now? There is an open comment on this in the roadmap doc.
-- **Not started:** none of the six items has code changes yet.
+- **Teammate branches (2026-11-07):** Rohan's side-photo branch is merged into `main`. Samantha's `Samantha-Cox-Task-4-Bad-Photo-Gate` (task 5, `photo_quality.py`) is reviewed but not merged: its blur cut-off (25) flags sharp photos (9.4 on our test arm), and its exposure check misses dark photos. See the GitHub issues. It conflicts with Rohan's changes in `App.tsx` and `tests/test_server.py`, so it needs a rebase. Nish's `nish/fix-known-errors-and-split-joined-walls-in-cleanup` (items 2 and 3) is not reviewed yet.
+- **Spark access:** on 2026-11-07, `ssh compute` was refused ("tailnet policy does not permit you to SSH as user hithesh"). Restore it before deploying.
 
 ## Open work (next steps first)
 

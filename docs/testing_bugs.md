@@ -33,7 +33,8 @@ Record observed failures separately from suspected causes. Keep participant or t
 - **Expected behavior to decide:** Make the side photo optional until a defined comparison/validation feature uses it, or implement that feature and report what it checks. Do not imply the current mesh uses two views.
 - **Code path:** `web/src/App.tsx` requires `photos.every(Boolean)` and uploads both files; `src/epics_geometry/pipeline.py` selects only the photo with role `generation`.
 - **Next test:** Run capture with a main photo only after deciding the intended workflow; verify capture export, server validation, generation, and review all handle an absent side photo. If keeping it required, specify and test the side-view analysis it supports.
-- **Status:** Open. Confirmed from the current code.
+- **Change (2026-11-07):** the side photo is optional and shown beside results for human review only (`docs/side_photo.md`, Rohan's branch). It still does not affect generation or validation.
+- **Status:** Option A done. Automated side-view shape check (option B) still open.
 
 ## TB-004 — Photo preparation (cut at Start) before TRELLIS: comparison
 
