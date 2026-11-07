@@ -109,3 +109,13 @@ def test_cli_writes_valid_json(tmp_path):
     out = tmp_path / "report.json"
     assert main([str(glb), str(submitted), "--axis-mode", "fixed", "--axis", "z", "-o", str(out)]) == 0
     assert json.loads(out.read_text())["overall_status"] == "pass"
+
+
+def test_uv_seam_is_closed_but_missing_triangle_is_open():
+    from epics_geometry.validate import _mesh_defects
+    import trimesh
+    box = trimesh.creation.box()
+    vertices = box.vertices[box.faces].reshape(-1, 3)
+    faces = np.arange(len(vertices)).reshape(-1, 3)
+    assert _mesh_defects(trimesh.Trimesh(vertices, faces, process=False))["is_watertight"]
+    assert _mesh_defects(trimesh.Trimesh(vertices, faces[:-1], process=False))["boundary_edge_count"] == 3

@@ -127,6 +127,9 @@ def _section_perimeter(mesh, long_axis, center, projection) -> tuple[float | Non
 
 
 def _mesh_defects(mesh: trimesh.Trimesh) -> dict[str, Any]:
+    # Texture seams duplicate positions for rendering. Test physical edges by position.
+    positions, inverse = np.unique(mesh.vertices, axis=0, return_inverse=True)
+    mesh = trimesh.Trimesh(positions, inverse.ravel()[mesh.faces], process=False)
     try:
         # Label faces by connected component instead of mesh.split(), which copies the
         # texture into every component: thousands of seam-split pieces exhausted 100+ GB.

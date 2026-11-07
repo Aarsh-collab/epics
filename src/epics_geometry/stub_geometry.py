@@ -11,6 +11,7 @@ import math
 from dataclasses import dataclass, field
 
 import numpy as np
+import trimesh
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 from scipy.spatial import ConvexHull
@@ -50,7 +51,7 @@ class Topology:
     warnings: list[str] = field(default_factory=list)
 
 
-def build_topology(instances: list[MeshInstance]) -> Topology:
+def build_topology(instances: list[MeshInstance], *, drop_fragments=False) -> Topology:
     all_v = np.concatenate([i.vertices for i in instances])
     if not np.isfinite(all_v).all():
         raise StubError("unsupported_mesh", "mesh has non-finite vertex coordinates")
@@ -73,7 +74,20 @@ def build_topology(instances: list[MeshInstance]) -> Topology:
     good = (faces[:, 0] != faces[:, 1]) & (faces[:, 1] != faces[:, 2]) & (faces[:, 0] != faces[:, 2])
     faces = faces[good]
     topo = Topology(vertices, faces, index)
-    _check_components(topo)
+    retained = _check_components(topo, drop_fragments)
+    if retained is not None:
+        filtered = []
+        for inst, idx in zip(instances, index):
+            keep = retained[idx][inst.faces].all(axis=1)
+            if keep.any():
+                mesh = trimesh.Trimesh(inst.vertices, inst.faces, visual=inst.visual, process=False)
+                mesh.update_faces(keep)
+                mesh.remove_unreferenced_vertices()
+                filtered.append(MeshInstance(inst.node, inst.geometry, mesh.vertices, mesh.faces, mesh.visual))
+        instances[:] = filtered
+        result = build_topology(instances)
+        result.warnings.extend(topo.warnings)
+        return result
     return topo
 
 
@@ -86,7 +100,7 @@ def face_geometry(v: np.ndarray, f: np.ndarray):
     return area, normal, tri.mean(axis=1)
 
 
-def _check_components(topo: Topology) -> None:
+def _check_components(topo: Topology, drop_fragments: bool) -> np.ndarray | None:
     n = len(topo.vertices)
     f = topo.faces
     rows = np.concatenate([f[:, 0], f[:, 1], f[:, 2]])
@@ -100,7 +114,13 @@ def _check_components(topo: Topology) -> None:
     total = comp_area.sum()
     order = np.argsort(comp_area)[::-1]
     stray = [a / total for a in comp_area[order[1:]] if a > 0]
+    # Bound the combined area so many small pieces cannot bypass the cutoff.
+    if drop_fragments and stray and sum(stray) <= 0.005:
+        topo.warnings.append(f"Removed {len(stray)} detached fragment(s) ({100 * sum(stray):.3f}% of area)")
+        return labels == order[0]
     large = [s for s in stray if s > STRAY_SURFACE]
+    if drop_fragments and sum(stray) > 0.005:
+        large = stray
     if large:
         raise StubError(
             "unsupported_mesh",
