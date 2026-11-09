@@ -214,3 +214,12 @@ valid v1 input. So:
   the mesh's own principal transverse direction.
 - Output is in the canonical frame (+Z along the stub). Rhino import and
   orientation have not been tested yet.
+
+
+### Fragment dropping and joined-wall cleanup follow-up
+
+With `drop_fragments`, stray pieces totalling more than 0.5% of area refuse
+scaling, even when each individual piece is tiny; many crumbs no longer proceed
+with only a warning. Joined-rim cleanup now supports bounded tilt, roughness and
+thicker walls in synthetic tests, and refuses a detected unresolved hidden wall.
+Real cut-photo validation remains pending; see `docs/testing_bugs.md`.

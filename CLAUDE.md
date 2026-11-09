@@ -116,7 +116,7 @@ Last full test run: 114 Python tests and 4 web tests passing, with a clean web b
 - Outputs: `outer_shell_report.json` and `outer_shell_review.glb`. The review GLB shows the kept surface in see-through grey, removed pieces in red and patches in yellow.
 - The server adds `_cleanup_summary` to the job result, and the web app shows a `CleanupReport` table.
 - Checked on a real nine-piece arm GLB: one closed body with the texture and tip unchanged. Scaling matched fake measurements.
-- **Limitation:** it separates only *disconnected* walls. Inner and outer walls joined at a cut rim (the normal result from prepared photos) are refused as a "bow-tie" hole or non-manifold.
+- Joined-rim splitting now detects terminal folds/bridges, fits tilted/rough loops, triangulates concave caps and checks containment. Synthetic regressions cover rough, tilted and thicker walls. Unresolved hidden side walls are refused. Real TB-004 cut-photo validation remains pending (see `docs/testing_bugs.md`).
 - Whether to turn it on by default is a team decision that is still pending.
 
 ## DGX Spark service (live)

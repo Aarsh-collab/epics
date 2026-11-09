@@ -43,3 +43,29 @@ Record observed failures separately from suspected causes. Keep participant or t
 - **Oval face (8% depth):** one forearm tube, but with an invented lump at the Start end (95th-percentile radius 0.14 against about 0.08 along the rest of the tube). Same joined-wall result.
 - **Extra seeds (1 and 7, prepared inputs only):** straight and oval both gave a single forearm tube without a lump or invented branch, so the seed-42 lump was not repeated. Seed 7 gave a flat-bottomed, D-shaped cross-section for both: the single view leaves the hidden side unconstrained.
 - **Decision:** straight cut is the website default; the oval is offered as experimental only. Neither prepared input scaled yet: the next mesh step is to split walls that meet at the cut rim. Clearer photos are still needed for the comparison the plan asks for.
+
+
+## Joined-rim follow-up — issues #10 and #11 (2026-11-09)
+
+- Local synthetic coverage now includes shared-edge and bridging-triangle joins,
+  random rim roughness of up to 0.3 mm, 5 and 15 degree tilted cuts, and walls
+  scaled to 92% of the outer wall (about 0.78 volume ratio). The combined rough,
+  tilted, thick case is also covered. These cases must retain every original
+  outer-wall face and export a watertight single wall.
+- Splitting uses terminal opposing-normal folds and axial bridging faces, then
+  fits each boundary loop's plane. Limits: terminal region 25% of diagonal,
+  fitted normal within 25 degrees of the PCA axis, and roughness within 1% of
+  diagonal. Joined-wall area and volume ratios use (0.5, 1.0), separately from
+  the disconnected thin-shell bounds (0.8, 1.0).
+- Caps triangulate the actual boundary, including non-star-shaped concave loops,
+  without moving original vertices. Opposite shared loops use consistent
+  diagonals. Solid containment is required beyond the actual rough-rim slab;
+  inside that slab independently triangulated nested caps may overlap. This
+  allowance does not extend into the limb body.
+- Rejected candidates leave all surface arrays unchanged. A single component
+  with more than 10% sampled area hidden on side-facing regions in transverse
+  views is refused as a possible unresolved inner wall. Sampling is seeded and
+  area weighted (300 samples); this is a heuristic, not an exhaustive guarantee.
+- Real TB-004 straight/oval meshes: **not rerun**. The documented `ssh compute`
+  alias does not resolve on this Windows checkout. The Spark run and inspection
+  remain required before closing issue #10. No real-mesh success is claimed.

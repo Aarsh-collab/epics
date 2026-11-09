@@ -213,7 +213,7 @@ def test_joined_rim_keeps_outer_geometry(tmp_path, shared_edge):
     else:
         parts = [body, inner, (ring, annulus, np.zeros((2*n, 2)))]
     _, report = run(tmp_path, parts)
-    assert report["repairs"]["outer_wall"]["joined_rim"]["cap_faces"] == n
+    assert report["repairs"]["outer_wall"]["joined_rim"]["cap_faces"] == n - 2
     assert closed(tmp_path / "clean.glb")
     expected = write(tmp_path / "expected.glb", arm())
     assert measure_glb(expected)["length_mm"] == pytest.approx(measure_glb(tmp_path / "clean.glb")["length_mm"])
@@ -230,3 +230,90 @@ def test_detached_fragment_excluded_from_measurements(tmp_path):
     report = scale_stub(stray, target, tmp_path / "scaled.glb")
     assert report["status"] == "measurements_matched", report
     assert any("detached fragment" in w for w in report["warnings"])
+
+
+@pytest.mark.parametrize("shared_edge", [False, True])
+@pytest.mark.parametrize("roughness,tilt,scale", [
+    (0.0003, 0, 0.97), (0, 5, 0.97), (0, 15, 0.97),
+    (0, 0, 0.92), (0.0003, 15, 0.92),
+])
+def test_joined_rim_uneven_tilted_thick(tmp_path, shared_edge, roughness, tilt, scale):
+    v, f, uv = arm()[0]
+    v = v.copy()
+    n = SIZE["n_theta"]
+    inner_v = scale * v
+    if shared_edge:
+        inner_v[:n+1] = v[:n+1]
+    # Apply the same shear to both walls: the actual cut plane tilts while
+    # the long limb axis remains nearly unchanged.
+    noise = np.random.default_rng(7).uniform(-roughness, roughness, n)
+    for points in (v, inner_v):
+        points[:, 2] += points[:, 0] * np.tan(np.deg2rad(tilt))
+        points[:n, 2] += noise
+        points[n, 2] += noise[0]  # duplicate UV seam vertex
+    parts = [(v, f, uv), (inner_v, f[:, ::-1], uv)]
+    if not shared_edge:
+        i = np.arange(n)
+        j = (i+1) % n
+        annulus = np.vstack((np.column_stack((j, i, n+i)),
+                             np.column_stack((j, n+i, n+j))))
+        parts.append((np.vstack((v[:n], inner_v[:n])), annulus, np.zeros((2*n, 2))))
+    _, report = run(tmp_path, parts)
+    split = report["repairs"]["outer_wall"]["joined_rim"]
+    assert split["inner_faces_removed"] == len(f)
+    assert report["kept_original_outer_faces"] == len(f)
+    assert closed(tmp_path / "clean.glb")
+
+
+@pytest.mark.parametrize("scale,shift", [(0.5, 0), (0.92, 0.02)])
+def test_abandoned_joined_split_does_not_mutate_surface(scale, shift):
+    from epics_geometry.outer_shell import _Surface, _split_joined_rim
+    v, f, uv = arm()[0]
+    # Reject either excessive thickness or an inner wall protruding sideways.
+    n = SIZE["n_theta"]
+    inner = scale * v
+    inner[:, 0] += shift * np.sin(np.pi * v[:, 2] / v[:, 2].max())
+    inner[:n+1] = v[:n+1]
+    vertices = np.vstack((v, inner))
+    faces = np.vstack((f, f[:, ::-1] + len(v)))
+    diagonal = np.linalg.norm(np.ptp(vertices, axis=0))
+    surface = _Surface(vertices, np.vstack((uv, uv)), diagonal)
+    before = [x.copy() for x in (surface.v, surface.uv, surface.mid, surface.mv)]
+    assert _split_joined_rim(surface, faces, diagonal) is None
+    for actual, expected in zip((surface.v, surface.uv, surface.mid, surface.mv), before):
+        np.testing.assert_array_equal(actual, expected)
+
+
+@pytest.mark.parametrize("scale,disable_split", [(0.97, True), (0.5, False)])
+def test_unsplittable_joined_wall_is_refused(tmp_path, monkeypatch, scale, disable_split):
+    import epics_geometry.outer_shell as shell
+    v, f, uv = arm()[0]
+    inner = scale * v
+    inner[:SIZE["n_theta"]+1] = v[:SIZE["n_theta"]+1]
+    if disable_split:
+        monkeypatch.setattr(shell, "_split_joined_rim", lambda *args: None)
+    with pytest.raises(ShellError, match="hidden surface"):
+        run(tmp_path, [(v, f, uv), (inner, f[:, ::-1], uv)])
+    assert not (tmp_path / "clean.glb").exists()
+
+
+def test_concave_rim_cap_follows_loop():
+    import manifold3d
+    from epics_geometry.outer_shell import _Surface, _rim_cap, _manifold
+    # U-shaped cross-section: its centroid lies in the missing notch.
+    polygon = np.array([[0, 0], [3, 0], [3, 3], [2, 3],
+                        [2, 1], [1, 1], [1, 3], [0, 3]], dtype=float)
+    n = len(polygon)
+    vertices = np.vstack((np.c_[polygon, np.zeros(n)], np.c_[polygon, np.full(n, 10)]))
+    i = np.arange(n)
+    j = (i + 1) % n
+    sides = np.vstack((np.column_stack((i, j, n+j)), np.column_stack((i, n+j, n+i))))
+    top = n + np.asarray(manifold3d.triangulate([polygon]))
+    wall = np.vstack((sides, top))
+    diagonal = np.linalg.norm(np.ptp(vertices, axis=0))
+    surface = _Surface(vertices, np.zeros((2*n, 2)), diagonal)
+    capped = _rim_cap(surface, wall, diagonal, np.array([0, 0, 1]), 0)
+    solid = _manifold(surface, capped)
+    assert solid.volume() == pytest.approx(70)
+    np.testing.assert_array_equal(surface.v[:len(vertices)], vertices)
+    assert len(capped) - len(wall) == n - 2
