@@ -49,8 +49,17 @@ def capture(measurements):
     }
 
 
+def quality_token(client, photo=None, landmarks=None, prep_id=None):
+    fields = {"landmarks": json.dumps(landmarks or {})}
+    if prep_id:
+        fields["preparation"] = prep_id
+    response = client.post("/api/photo-quality", data=fields,
+                           files={"photo": ("main.png", photo or png(), "image/png")})
+    return response.json().get("review_token", "")
+
+
 def submit(client, record, photos=("main.png", "side.png")):
-    return client.post("/api/jobs", data={"capture": json.dumps(record)},
+    return client.post("/api/jobs", data={"capture": json.dumps(record), "quality_ack": quality_token(client)},
                        files=[("photos", (name, png(), "image/png")) for name in photos])
 
 
@@ -177,7 +186,7 @@ def test_discard_while_running_deletes_after_run(tmp_path, stub_glb):
 def test_cleanup_report_reaches_the_result(client, stub_glb):
     login(client)
     response = client.post("/api/jobs", data={"capture": json.dumps(capture(targets_for(stub_glb))),
-                                              "outer_shell": "true"},
+                                              "outer_shell": "true", "quality_ack": quality_token(client)},
                            files=[("photos", (n, png(), "image/png")) for n in ("main.png", "side.png")])
     job = wait(client, response.json()["id"])
     # The synthetic stub has two mesh instances, which the cleanup refuses.
@@ -227,11 +236,15 @@ def prepared_capture(stub_glb, landmarks=LANDMARKS):
 
 
 def submit_prepared(client, record, prep_id, photo=None, *, side=True):
+    landmarks = record["landmarks"]
+    ack = quality_token(client, photo or limb_png(),
+                        {"start": landmarks["model_start"], "tip": landmarks["stub_endpoint"]}, prep_id)
     files = [("photos", ("main.png", photo or limb_png(), "image/png"))]
     if side:
         files.append(("photos", ("side.png", png(), "image/png")))
-    return client.post("/api/jobs", data={"capture": json.dumps(record), "preparation": prep_id},
+    return client.post("/api/jobs", data={"capture": json.dumps(record), "preparation": prep_id, "quality_ack": ack},
                        files=files)
+
 
 
 def test_preparation_needs_passcode(prep_client):

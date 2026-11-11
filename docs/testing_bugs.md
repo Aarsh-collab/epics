@@ -2,6 +2,15 @@
 
 Record observed failures separately from suspected causes. Keep participant or test photos and generated meshes outside the repository unless the team explicitly approves adding them.
 
+## TB-005 — Photo-quality gate rejects smooth images and misses dim lighting
+
+- **Reported:** GitHub issues #6, #7 and #8, reviewed 2026-11-10.
+- **Observed:** the reviewer reported sharpness 9.4 for a sharp AI-generated arm, below the original cutoff of 25; the clipping-only exposure check missed a 15%-brightness image. Job polling also read `capture.json` unconditionally.
+- **Changes:** provisional blur cutoff 4; exposure additionally checks median brightness below 40 or above 220; quality reports are persisted in `job.json`. Start/Tip validation is no longer duplicated. Rebased integration preserves the optional side photo.
+- **Additional reproduced defect:** deleting or corrupting the saved preparation mask caused a server error in the quality-check path. It now returns 409 with guidance to prepare again, including on job submission.
+- **Verification:** synthetic smooth-surface, blur and exposure regressions; API checks for damaged captures, older jobs and damaged masks. See `docs/photo_quality.md` for the reviewer's measurements and calibration plan.
+- **Status:** code fixes on `Samantha_Task4_Fixes`; real-photo calibration and live GPU checks remain pending.
+
 ## TB-001 — Outer-shell option stops on a mesh without a nested inner wall
 
 - **Reported:** 2026-10-25 by the project team.
