@@ -46,6 +46,7 @@ MAX_MALFORMED_FACES = 64  # faces that may be cut out around non-manifold edges
 INNER_INSIDE_MIN = 0.99
 INNER_VISIBLE_MAX = 0.01
 SHELL_RATIO = (0.8, 1.0)  # inner/outer area and volume ratios of a thin double shell
+JOINED_RATIO = (0.5, 1.0)  # thicker joined walls; still require solid containment
 MAX_SAMPLES = 3000
 VISIBILITY_SAMPLES = 300  # inner-wall points also ray-tested from outside, as a second check
 MAX_COLOUR_DIFF = 40.0  # mean 0-255 RGB difference allowed at repaired vertices
@@ -229,65 +230,116 @@ def _repair(s: _Surface, faces: np.ndarray, diagonal: float) -> tuple[np.ndarray
     return merged, mask, log
 
 
+def _rim_cap(s, wall, diagonal, axis, end):
+    """Cap one terminal loop in its fitted plane, retaining its actual 3D edge."""
+    import manifold3d
+
+    loops, corner = _boundary_loops(s.mid[wall], wall)
+    if len(loops) != 1 or _edge_stats(s.mid[wall])["nonmanifold_edges"]:
+        raise ShellError("split wall must have one manifold rim loop")
+    ids = np.array([corner[i] for i in loops[0]])
+    # Canonical loop order makes opposite windings use the same diagonals,
+    # including on non-planar shared rims.
+    ids = np.roll(ids, -np.argmin(s.mid[ids]))
+    reverse = s.mid[ids[1]] > s.mid[ids[-1]]
+    if reverse:
+        ids = np.r_[ids[:1], ids[:0:-1]]
+    edge = s.v[ids]
+    centre = edge.mean(axis=0)
+    _, _, basis = np.linalg.svd(edge - centre, full_matrices=False)
+    if len(ids) < 3 or abs(basis[2] @ axis) < np.cos(np.deg2rad(25)):
+        raise ShellError("rim plane is too far from a terminal cut")
+    if np.max(np.abs((edge - centre) @ basis[2])) > 0.01 * diagonal:
+        raise ShellError("rim is too uneven to cap reliably")
+    if np.max(np.abs(edge @ axis - end)) > 0.25 * diagonal:
+        raise ShellError("rim extends beyond the terminal region")
+    polygon = (edge - centre) @ basis[:2].T
+    signed = np.sum(polygon[:, 0] * np.roll(polygon[:, 1], -1)
+                    - polygon[:, 1] * np.roll(polygon[:, 0], -1))
+    if signed < 0:
+        polygon[:, 1] *= -1
+    triangles = np.asarray(manifold3d.triangulate([polygon]), dtype=np.int64)
+    if reverse:
+        triangles = triangles[:, ::-1]
+    projected = polygon[triangles]
+    ab, ac = projected[:, 1] - projected[:, 0], projected[:, 2] - projected[:, 0]
+    area2 = np.abs(ab[:, 0] * ac[:, 1] - ab[:, 1] * ac[:, 0]).sum()
+    if len(triangles) != len(ids) - 2 or not np.isclose(area2, abs(signed), rtol=1e-6, atol=diagonal**2 * 1e-12):
+        raise ShellError("rim could not be triangulated without overlap")
+    # Duplicate UVs for the flat-colour patch, but share topology with the wall.
+    cap_ids = np.arange(len(s.v), len(s.v) + len(ids))
+    s.v = np.vstack((s.v, edge))
+    s.uv = np.vstack((s.uv, np.repeat(s.uv[ids[:1]], len(ids), axis=0)))
+    s.mid = np.concatenate((s.mid, s.mid[ids]))
+    return np.vstack((wall, cap_ids[triangles]))
+
+
 def _split_joined_rim(s, faces, diagonal):
-    """Recognize nested, oppositely wound walls attached at a planar terminal rim."""
+    """Split a terminal fold or bridging rim; commit vertices only on success."""
+    from copy import copy
+
     mf = s.mid[faces]
     points = s.mv[np.unique(mf)]
     axis = np.linalg.svd(points - points.mean(axis=0), full_matrices=False)[2][0]
+    tri = s.mv[mf]
+    normals = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-30)
+    adjacency, shared = trimesh.graph.face_adjacency(faces=mf, return_edges=True)
+    folds = np.einsum("ij,ij->i", normals[adjacency[:, 0]], normals[adjacency[:, 1]]) < -0.25
     height = s.mv @ axis
     for end in (min(points @ axis), max(points @ axis)):
-        rim = (np.abs(height[mf] - end) <= 0.005 * diagonal).all(axis=1)
-        if rim.all():
-            continue
-        remaining = faces[~rim]
-        merged = s.mid[remaining]
-        adjacency, shared = trimesh.graph.face_adjacency(faces=merged, return_edges=True)
-        # Two walls can share rim edges directly, without any bridging triangles.
-        at_end = np.abs(height[shared] - end) <= 0.005 * diagonal
-        adjacency = adjacency[~at_end.all(axis=1)]
-        labels = trimesh.graph.connected_component_labels(adjacency, node_count=len(remaining))
-        if len(np.unique(labels)) != 2:
-            continue
-        walls = []
-        for label in (0, 1):
-            wall = remaining[labels == label]
-            loops, corner = _boundary_loops(s.mid[wall], wall)
-            if len(loops) != 1 or _edge_stats(s.mid[wall])["nonmanifold_edges"]:
-                break
-            ids = np.array([corner[i] for i in loops[0]])
-            edge = s.v[ids]
-            if np.max(np.abs(edge @ axis - end)) > 0.005 * diagonal:
-                break
-            centre = edge.mean(axis=0)
-            spokes = edge - centre
-            winding = np.cross(spokes, np.roll(spokes, -1, axis=0)) @ axis
-            if not (np.all(winding > 0) or np.all(winding < 0)):
-                break
-            cap_centre = s.add_vertex(centre, s.uv[ids[0]])
-            # Give the artificial cap a single local texture colour.
-            cap_ids = np.arange(len(s.v), len(s.v) + len(ids))
-            s.v = np.vstack((s.v, s.v[ids]))
-            s.uv = np.vstack((s.uv, np.repeat(s.uv[ids[:1]], len(ids), axis=0)))
-            s.mid = np.concatenate((s.mid, s.mid[ids]))
-            cap = np.column_stack((cap_ids, np.roll(cap_ids, -1), np.full(len(ids), cap_centre)))
-            closed = np.vstack((wall, cap))
-            area, volume = _area_volume(s.mv, s.mid[closed])
-            walls.append((volume, area, closed, len(wall)))
-        if len(walls) != 2:
-            continue
-        inner, outer = sorted(walls, key=lambda w: w[0])
-        if outer[0] <= 0 or not (SHELL_RATIO[0] < -inner[0] / outer[0] < 1
-                                  and SHELL_RATIO[0] < inner[1] / outer[1] < 1):
-            continue
-        solid = _manifold(s, outer[2])
-        cavity = _manifold(s, inner[2][:, ::-1])
-        if (cavity - solid).volume() > 1e-6 * cavity.volume():
-            continue
-        patches = np.arange(len(outer[2])) >= outer[3]
-        log = {"joined_rim": {"inner_faces_removed": inner[3], "rim_faces_removed": int(rim.sum()),
-                              "cap_faces": int(patches.sum())}}
-        removed = np.vstack((inner[2][:inner[3]], faces[rim]))
-        return outer[2], patches, log, removed
+        terminal = (np.abs(height[mf] - end) <= 0.25 * diagonal).all(axis=1)
+        terminal_edge = (np.abs(height[shared] - end) <= 0.25 * diagonal).all(axis=1)
+        # A shared-edge join is an opposing-normal fold. A bridging annulus
+        # instead has faces pointing along the limb axis, near its terminal end.
+        for axial_limit in (1.1, 0.7, 0.4):
+            rim = terminal & (np.abs(normals @ axis) > axial_limit)
+            remaining = ~rim
+            links = adjacency[remaining[adjacency].all(axis=1) & ~(folds & terminal_edge)]
+            labels = trimesh.graph.connected_component_labels(links, node_count=len(faces))
+            groups = np.unique(labels[remaining])
+            if len(groups) != 2:
+                continue
+            trial = copy(s)  # helpers append arrays; the original stays untouched on rejection
+            walls = []
+            try:
+                for label in groups:
+                    wall = faces[remaining & (labels == label)]
+                    closed = _rim_cap(trial, wall, diagonal, axis, end)
+                    area, volume = _area_volume(trial.mv, trial.mid[closed])
+                    walls.append((volume, area, closed, len(wall)))
+                inner, outer = sorted(walls, key=lambda w: w[0])
+                # Joined walls may be substantially thicker than a thin,
+                # disconnected double shell. Containment remains mandatory.
+                if outer[0] <= 0 or not (JOINED_RATIO[0] < -inner[0] / outer[0] < JOINED_RATIO[1]
+                                        and JOINED_RATIO[0] < inner[1] / outer[1] < JOINED_RATIO[1]):
+                    continue
+                solid = _manifold(trial, outer[2])
+                cavity = _manifold(trial, inner[2][:, ::-1])
+                outside = cavity - solid
+                if outside.volume() > 1e-6 * cavity.volume():
+                    # Different nested rough loops need not interpolate the
+                    # same cap surface. Permit overlap only within the actual
+                    # rim's fitted-plane slab; containment beyond it is strict.
+                    loops, _ = _boundary_loops(trial.mid[outer[2][:outer[3]]], outer[2][:outer[3]])
+                    edge = trial.mv[loops[0]]
+                    centre = edge.mean(axis=0)
+                    normal = np.linalg.svd(edge - centre, full_matrices=False)[2][2]
+                    if (points.mean(axis=0) - centre) @ normal < 0:
+                        normal = -normal
+                    inner_loops, _ = _boundary_loops(trial.mid[inner[2][:inner[3]]], inner[2][:inner[3]])
+                    rim_points = np.vstack((edge, trial.mv[inner_loops[0]]))
+                    offset = float(np.max(rim_points @ normal)) + 1e-7 * diagonal
+                    if outside.trim_by_plane(tuple(normal), offset).volume() > 1e-6 * cavity.volume():
+                        continue
+            except ShellError:
+                continue
+            s.v, s.uv, s.mid, s.mv = trial.v, trial.uv, trial.mid, trial.mv
+            patches = np.arange(len(outer[2])) >= outer[3]
+            log = {"joined_rim": {"inner_faces_removed": inner[3], "rim_faces_removed": int(rim.sum()),
+                                  "cap_faces": int(patches.sum())}}
+            removed = np.vstack((inner[2][:inner[3]], faces[rim]))
+            return outer[2], patches, log, removed
     return None
 
 
@@ -326,7 +378,8 @@ def _inside(solid, points: np.ndarray, diagonal: float) -> np.ndarray:
     return votes >= 2
 
 
-def _visible(solid, points: np.ndarray, diagonal: float, candidates: np.ndarray | None = None) -> np.ndarray:
+def _visible(solid, points: np.ndarray, diagonal: float, candidates: np.ndarray | None = None,
+             directions: np.ndarray = DIRECTIONS) -> np.ndarray:
     """Whether each point can be seen from outside along any of 26 directions.
 
     Only ``candidates`` are tested; a point inside the closed outer wall cannot
@@ -335,7 +388,7 @@ def _visible(solid, points: np.ndarray, diagonal: float, candidates: np.ndarray 
     reach, lift = 1.5 * diagonal, 1e-6 * diagonal
     seen = np.zeros(len(points), dtype=bool)
     pending = np.ones(len(points), dtype=bool) if candidates is None else candidates.copy()
-    for d in DIRECTIONS:
+    for d in directions:
         for i in np.where(pending & ~seen)[0]:
             p = points[i] + d * lift
             if not solid.ray_cast(tuple(p), tuple(p + d * reach)):
@@ -539,6 +592,29 @@ def extract(source: Path, target: Path, review: Path | None = None) -> dict:
     report["repairs"]["outer_wall"] = repair_log
     if solid.volume() <= 0:
         refuse("the largest surface is inside-out (negative volume); cannot identify an exterior")
+    if len(walls) == 1 and split is None:
+        triangles = s.mv[s.mid[outer_faces]]
+        areas = np.linalg.norm(np.cross(triangles[:, 1] - triangles[:, 0],
+                                        triangles[:, 2] - triangles[:, 0]), axis=1)
+        selected = rng.choice(len(triangles), VISIBILITY_SAMPLES, p=areas / areas.sum())
+        pts = triangles[selected].mean(axis=1)
+        # An open cup's inner wall can be seen through the cut end. Inspect
+        # transverse views so that looking down that opening cannot hide the
+        # unresolved double wall from this guard.
+        axis = np.linalg.svd(s.mv[np.unique(s.mid[outer_faces])] -
+                             s.mv[np.unique(s.mid[outer_faces])].mean(axis=0),
+                             full_matrices=False)[2][0]
+        side_views = DIRECTIONS[np.abs(DIRECTIONS @ axis) <= 0.5]
+        face_normals = np.cross(triangles[selected, 1] - triangles[selected, 0],
+                                triangles[selected, 2] - triangles[selected, 0])
+        face_normals /= np.maximum(np.linalg.norm(face_normals, axis=1, keepdims=True), 1e-30)
+        side_faces = np.abs(face_normals @ axis) < 0.7
+        visible = _visible(solid, pts, diagonal, candidates=side_faces, directions=side_views)
+        hidden = float((side_faces & ~visible).mean())
+        report["walls"]["hidden_area_fraction"] = hidden
+        if hidden > 0.10:
+            refuse(f"outer wall has a large hidden surface ({hidden:.1%}); "
+                   "possible joined inner wall could not be split")
     outer["decision"] = "kept as the outer wall"
 
     # Inner wall: a second large piece must be nested, hidden and similar.
