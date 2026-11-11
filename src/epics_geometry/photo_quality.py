@@ -14,7 +14,9 @@ class QualitySettings:
     analysis_max_side: int = 768
     min_crop_side: int = 128
     min_occupancy: float = 0.08
-    min_sharpness: float = 25.0
+    min_sharpness: float = 4.0
+    min_median_brightness: float = 40.0
+    max_median_brightness: float = 220.0
     max_clipped_share: float = 0.25
     max_uncertain_share: float = 0.20
     max_secondary_share: float = 0.05
@@ -48,6 +50,14 @@ def evaluate(photo: bytes, *, mask=None, start=None, tip=None,
     def missing(code, message):
         checks.append({"code": code, "status": "unavailable", "message": message})
 
+    def exposure(pixels, message):
+        clipped = float(np.mean((pixels <= 5) | (pixels >= 250)))
+        median = float(np.median(pixels))
+        check("exposure", clipped > settings.max_clipped_share
+              or median < settings.min_median_brightness
+              or median > settings.max_median_brightness, message)
+        metrics.update(clipped_share=clipped, median_brightness=median)
+
     alpha = None
     if mask is not None:
         alpha = np.asarray(mask, dtype=float)
@@ -60,15 +70,14 @@ def evaluate(photo: bytes, *, mask=None, start=None, tip=None,
         for code in ("framing", "segmentation", "clutter"):
             missing(code, "Prepare the photo to check the limb's " + code + ".")
         sharpness = float(np.var(ndi.laplace(gray)))
-        clipped = float(np.mean((gray <= 5) | (gray >= 250)))
         check("blur", sharpness < settings.min_sharpness,
               "The photo may be blurry — hold the phone still and focus on the limb. This whole-photo check can be influenced by the background.")
-        check("exposure", clipped > settings.max_clipped_share,
+        exposure(gray,
               "Large dark or bright areas may hide detail — use even lighting. This whole-photo check can be influenced by the background.")
         check("resolution", min(w, h) < settings.min_crop_side,
               "Photo resolution is low — upload the original full-size photo.")
         metrics["image_size_px"] = [w, h]
-        metrics.update(sharpness=sharpness, clipped_share=clipped, region="whole_image")
+        metrics.update(sharpness=sharpness, region="whole_image")
     else:
         a = np.asarray(Image.fromarray(alpha.astype("float32")).resize(size, Image.Resampling.BILINEAR))
         fg = a > 0.5
@@ -84,16 +93,9 @@ def evaluate(photo: bytes, *, mask=None, start=None, tip=None,
         roi = fg.copy()
         tip_edge = None
         if start is not None and tip is not None:
-            s = np.array([float(start["x"]), float(start["y"])])
-            t = np.array([float(tip["x"]), float(tip["y"])])
-            if not np.isfinite([s, t]).all() or np.any(s < 0) or np.any(s > 1) or np.any(t < 0) or np.any(t > 1):
-                raise ValueError("Quality landmarks must be finite normalized image coordinates.")
-            s *= size
-            t *= size
+            s, t = points * size
             direction = t - s
             span = np.linalg.norm(direction)
-            if span <= 0:
-                raise ValueError("Quality Start and Tip must be distinct.")
             ys, xs = np.indices(gray.shape)
             along = ((xs + .5 - s[0]) * direction[0] + (ys + .5 - s[1]) * direction[1]) / span
             roi &= along >= 0
@@ -117,10 +119,9 @@ def evaluate(photo: bytes, *, mask=None, start=None, tip=None,
             missing("exposure", "Too little limb area to check lighting — retake the photo closer.")
         else:
             sharpness = float(np.var(ndi.laplace(gray)[interior]))
-            clipped = float(np.mean((gray[interior] <= 5) | (gray[interior] >= 250)))
             check("blur", sharpness < settings.min_sharpness, "Photo may be blurry — hold the phone still and focus on the limb.")
-            check("exposure", clipped > settings.max_clipped_share, "Limb detail is lost in dark or bright areas — use even lighting without glare.")
-            metrics.update(sharpness=sharpness, clipped_share=clipped)
+            exposure(gray[interior], "Limb detail may be hidden by dim lighting or glare — use even lighting.")
+            metrics.update(sharpness=sharpness)
         ring = ndi.binary_dilation(roi, iterations=12) & ~ndi.binary_dilation(fg, iterations=3)
         edges = np.hypot(ndi.sobel(gray, axis=0), ndi.sobel(gray, axis=1)) > 100
         clutter = float(edges[ring].mean()) if ring.any() else 0.0

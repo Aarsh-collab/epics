@@ -62,6 +62,58 @@ def test_changed_photo_or_markers_invalidates_ack(client, stub_glb):
     assert post_job(client, record, ack=ack).status_code == 400
 
 
+@pytest.mark.parametrize("damage", ["missing", "corrupt"])
+def test_job_status_survives_unreadable_capture(client, stub_glb, tmp_path, damage):
+    login(client)
+    response = post_job(client, capture(targets_for(stub_glb)), ack=quality_token(client))
+    assert response.status_code == 201
+    job = wait(client, response.json()["id"])
+    root = tmp_path / "data" / "jobs" / job["id"]
+    assert json.loads((root / "job.json").read_text())["photo_quality"] == job["photo_quality"]
+    path = root / "input" / "capture.json"
+    if damage == "missing":
+        path.unlink()
+    else:
+        path.write_text("{broken")
+    response = client.get("/api/jobs/" + job["id"])
+    assert response.status_code == 200
+    assert response.json()["photo_quality"] == job["photo_quality"]
+    # Older jobs without the saved report remain readable, with no invented result.
+    saved = json.loads((root / "job.json").read_text())
+    del saved["photo_quality"]
+    (root / "job.json").write_text(json.dumps(saved))
+    response = client.get("/api/jobs/" + job["id"])
+    assert response.status_code == 200
+    assert response.json()["photo_quality"] is None
+
+
+@pytest.mark.parametrize("damage", ["missing", "corrupt"])
+def test_unreadable_prepared_mask_requests_new_preparation(tmp_path, stub_glb, damage):
+    image, mask = scene()
+    client = TestClient(create_app(PASSCODE, tmp_path, cookie_secure=False,
+                                  start_worker=False, prep_mask=lambda _: mask))
+    login(client)
+    data = png_bytes(image)
+    landmarks = {"start": START, "tip": TIP}
+    prepared = client.post("/api/preparations", data={"landmarks": json.dumps(landmarks)},
+                           files={"photo": ("main.png", data)})
+    assert prepared.status_code == 201
+    prep = prepared.json()["id"]
+    path = tmp_path / "preps" / prep / "mask.png"
+    if damage == "missing":
+        path.unlink()
+    else:
+        path.write_bytes(b"broken image")
+    response = client.post("/api/photo-quality", data={"landmarks": json.dumps(landmarks), "preparation": prep},
+                           files={"photo": ("main.png", data)})
+    assert response.status_code == 409
+    assert "Prepare the photo again" in response.json()["detail"]
+    record = capture(targets_for(stub_glb))
+    record["landmarks"] = {"model_start": START, "stub_endpoint": TIP}
+    assert post_job(client, record, photo=data, preparation=prep).status_code == 409
+    assert not list((tmp_path / "jobs").iterdir())
+
+
 def test_strict_mode_cannot_be_overridden(tmp_path, stub_glb):
     client = TestClient(create_app(PASSCODE, tmp_path / "strict", cookie_secure=False,
                                    quality_mode="strict", start_worker=False))

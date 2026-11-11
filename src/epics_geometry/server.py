@@ -144,7 +144,7 @@ class Jobs:
             if prep is not None:
                 shutil.move(str(prep), input_dir / pipeline.PREP_DIR)
             job = {"id": job_id, "status": "queued", "created": _now(), "started": None,
-                   "finished": None, "options": options}
+                   "finished": None, "options": options, "photo_quality": capture.get("photo_quality")}
             self._write(job)
             self.waiting.append(job_id)
             self.queue.put(job_id)
@@ -303,8 +303,7 @@ def _check_capture(capture: dict) -> list[str]:
 def _job_view(jobs: Jobs, job: dict) -> dict:
     view = {k: job.get(k) for k in ("id", "status", "created", "started", "finished", "options", "error")}
     view["position"] = jobs.position(job["id"]) if job["status"] == "queued" else None
-    capture = json.loads((jobs.root / job["id"] / "input" / pipeline.CAPTURE_FILE).read_text())
-    view["photo_quality"] = capture.get("photo_quality")
+    view["photo_quality"] = job.get("photo_quality")
     out = jobs.root / job["id"] / "out"
     manifest_path = out / "manifest.json"
     if job["status"] == "done" and manifest_path.is_file():
@@ -354,8 +353,11 @@ def create_app(passcode: str, data_dir: Path, *, web_dist: Path | None = None, m
             if (hashlib.sha256(data).hexdigest() != record["original_sha256"]
                     or landmarks != record["landmarks_normalized"]):
                 raise HTTPException(409, "The prepared photo is out of date. Prepare the current photo and markers again.")
-            with Image.open(path / "mask.png") as image:
-                mask = np.asarray(image, dtype=float) / 255
+            try:
+                with Image.open(path / "mask.png") as image:
+                    mask = np.asarray(image, dtype=float) / 255
+            except OSError:
+                raise HTTPException(409, "The prepared limb outline is unavailable. Prepare the photo again.")
         try:
             report = photo_quality.evaluate(data, mask=mask, start=landmarks.get("start"), tip=landmarks.get("tip"))
         except (ValueError, TypeError, KeyError) as exc:

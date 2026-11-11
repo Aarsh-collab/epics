@@ -44,6 +44,44 @@ def test_blur_is_measured_on_limb_interior_not_its_sharp_silhouette():
     assert checks(assess(image, mask))["blur"] == "pass"
 
 
+def test_smooth_surface_passes_but_defocus_warns():
+    # Synthetic low-texture skin-like surface, not a real-photo calibration set.
+    image, mask = scene()
+    y, x = np.indices(mask.shape)
+    rng = np.random.default_rng(17)
+    gray = np.clip(135 + 15 * np.sin(x / 90) + 10 * np.cos(y / 80)
+                   + rng.normal(0, .7, mask.shape), 0, 255).astype(np.uint8)
+    pixels = np.array(image)
+    pixels[mask > 0] = np.repeat(gray[..., None], 3, axis=2)[mask > 0]
+    image = Image.fromarray(pixels)
+    report = assess(image, mask)
+    assert 4 < report["metrics"]["sharpness"] < 25
+    assert decision(report, "strict")["status"] == "pass", report
+    for radius in (4, 10):
+        assert checks(assess(image.filter(ImageFilter.GaussianBlur(radius)), mask))["blur"] == "warn"
+
+
+@pytest.mark.parametrize("value", [25, 235])
+@pytest.mark.parametrize("masked", [True, False])
+def test_unclipped_dim_or_bright_image_warns_on_exposure(value, masked):
+    image, mask = scene()
+    pixels = np.array(image)
+    pixels[:] = value
+    report = assess(Image.fromarray(pixels), mask if masked else None)
+    assert report["metrics"]["clipped_share"] == 0
+    assert report["metrics"]["median_brightness"] == value
+    assert checks(report)["exposure"] == "warn"
+
+
+def test_darkened_textured_limb_warns_independently_of_blur():
+    image, mask = scene()
+    dark = Image.fromarray((np.asarray(image) * .15).astype(np.uint8))
+    report = assess(dark, mask)
+    assert report["metrics"]["clipped_share"] == 0
+    assert checks(report)["blur"] == "pass"
+    assert checks(report)["exposure"] == "warn"
+
+
 @pytest.mark.parametrize("value", [0, 255])
 def test_lost_exposure_detail_is_flagged(value):
     image, mask = scene()
