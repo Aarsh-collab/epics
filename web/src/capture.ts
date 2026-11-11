@@ -9,6 +9,10 @@ export function photoRecords(photos: (CapturePhoto | null)[]) {
   return photoEntries(photos).map(({ photo, role }) => ({ role, filename: photo.file.name, width_px: photo.width, height_px: photo.height }));
 }
 export function hasMainPhoto(photos: (CapturePhoto | null)[]) { return !!photos[0]; }
+export function sideLandmarkRecord(photo: CapturePhoto | null, start: Point | null, tip: Point | null) {
+  if (!photo || !start || !tip || ![start.x, start.y, tip.x, tip.y].every(v => Number.isFinite(v) && v >= 0 && v <= 1) || landmarkDistance(start, tip) <= .03) return undefined;
+  return { model_start: start, stub_endpoint: tip };
+}
 export const fractions = [0.25, 0.5, 0.75] as const;
 export function station(start: Point, end: Point, fraction: number): Point { return { x: start.x + (end.x - start.x) * fraction, y: start.y + (end.y - start.y) * fraction }; }
 export function validMm(value: string) { return value.trim() !== '' && Number.isFinite(Number(value)) && Number(value) > 0 && Number(value) <= 2000; }

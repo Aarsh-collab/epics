@@ -317,6 +317,7 @@ def _job_view(jobs: Jobs, job: dict) -> dict:
             "cleanup": _cleanup_summary(out),
             "validation": (manifest["stages"].get("validate") or {}).get("summary"),
             "limitations": manifest["limitations"],
+            "side_view": manifest["stages"].get("side_view"),
         }
     view["files"] = [name for name in RESULT_FILES if (out / name).is_file()]
     return view
