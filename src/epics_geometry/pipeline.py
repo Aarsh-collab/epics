@@ -21,7 +21,7 @@ from pathlib import Path
 
 from .measurements import MeasurementError, parse_measurements
 from .stub import scale_stub
-from . import validate
+from . import validate, side_view
 
 CAPTURE_FILE = "capture.json"
 PREP_DIR = "prep"  # approved photo preparation inside a capture folder (photo_prep)
@@ -79,6 +79,7 @@ def run(
     settings=None,
     outer_shell: bool = False,
     overwrite: bool = False,
+    side_mask_fn=None,
 ) -> dict:
     """Run every stage and return the manifest (also written to ``out_dir``).
 
@@ -96,7 +97,7 @@ def run(
         "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "status": "running",
         "failed_stage": None,
-        "stages": {},
+        "stages": {"side_view": side_view.unavailable("A scaled mesh is not available yet.")},
         "result_glb": None,
         "review_status": "pending_human_review",
         "limitations": [
@@ -106,6 +107,7 @@ def run(
         ],
     }
     stage = "inputs"
+    capture = None
     t_start = time.perf_counter()
     try:
         if capture_dir is not None:
@@ -190,6 +192,17 @@ def run(
 
         stage = "validate"
         validation = validate.evaluate(scaled, measurements, axis_mode="canonical")
+        side_report = side_view.evaluate_capture(capture_dir, capture, to_scale, scaled, report, mask_fn=side_mask_fn)
+        validation["side_view"] = side_report
+        manifest["stages"]["side_view"] = side_report
+        if side_report["status"] != "unavailable":
+            validation["not_verified"] = [item for item in validation["not_verified"] if item != "Side-photo visual comparison is not performed."]
+            validation["not_verified"].append("Side-width consistency was checked, but camera pose and anatomical accuracy remain unverified.")
+        if side_report["status"] == "warn":
+            if validation["overall_status"] == "pass":
+                validation["overall_status"] = "warn"
+            validation["summary"] += " Side-view consistency warning; review the separate side_view report."
+        manifest["limitations"].append("Side-view comparison is optional and warning-only; an unavailable check is never a pass. Hand-held camera pose is not calibrated.")
         validate.write_json(out_dir / "validation.json", validation)
         manifest["stages"]["validate"] = {
             "overall_status": validation["overall_status"], "summary": validation["summary"],

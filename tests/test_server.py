@@ -89,6 +89,7 @@ def test_capture_to_scaled_download(client, stub_glb):
     job = wait(client, response.json()["id"])
     assert job["result"]["status"] == "complete", job
     assert job["result"]["review_status"] == "pending_human_review"
+    assert job["result"]["side_view"]["status"] == "unavailable"
     assert "scaled.glb" in job["files"]
     glb = client.get(f"/api/jobs/{job['id']}/files/scaled.glb")
     assert glb.status_code == 200 and glb.content[:4] == b"glTF"

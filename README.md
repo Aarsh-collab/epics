@@ -52,8 +52,10 @@ Commands available after `uv sync` (laptop) or `setup_env.sh` (Sol):
 The same pipeline also runs as a passcode-protected web service on the lab's DGX Spark: the capture app
 uploads `capture.json`, the required main photo, and an optional side photo. One GPU worker runs `epics-pipeline` jobs in order, and the page
 offers `scaled.glb`, `manifest.json` and the reports for download. Code: `src/epics_geometry/server.py`;
-deployment: `deploy/spark/`. The side photo is shown with results for human review only; it does not
-affect generation or automated validation. See [side photo behavior](docs/side_photo.md).
+deployment: `deploy/spark/`. With Side Start and Tip markers, the optional side photo
+supports a warning-only outline consistency check after scaling. Its report and
+profile plot appear with the results; uncertain/missing inputs are unavailable,
+never a pass. See [side photo behavior](docs/side_photo.md).
 
 ```bash
 bash deploy/spark/deploy.sh   # from this Mac: build web/, sync tracked files to ~/epics-app/repo, restart

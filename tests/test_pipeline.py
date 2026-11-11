@@ -56,6 +56,53 @@ def test_capture_to_validated_mesh(tmp_path, stub_glb):
     assert (out / "scaled.glb").is_file() and (out / "validation.json").is_file()
     assert json.loads((out / "manifest.json").read_text())["status"] == "complete"
     assert len(manifest["input_photo"]["sha256"]) == 64
+    assert manifest["stages"]["side_view"]["status"] == "unavailable"
+    assert json.loads((out / "validation.json").read_text())["side_view"]["status"] == "unavailable"
+
+
+def test_side_warning_is_saved_without_changing_the_mesh(tmp_path, stub_glb, monkeypatch):
+    from epics_geometry import side_view
+
+    inputs = capture_dir(tmp_path, targets_for(stub_glb))
+    baseline = run(tmp_path / "baseline", capture_dir=inputs, glb=stub_glb)
+    warning = {**side_view.unavailable("Synthetic mismatch"), "status": "warn"}
+    monkeypatch.setattr(side_view, "evaluate_capture", lambda *a, **kw: warning)
+    out = tmp_path / "with_side"
+    result = run(out, capture_dir=inputs, glb=stub_glb)
+    assert result["status"] == baseline["status"] == "complete"
+    assert (out / "scaled.glb").read_bytes() == (tmp_path / "baseline" / "scaled.glb").read_bytes()
+    assert result["stages"]["side_view"] == warning
+    validation = json.loads((out / "validation.json").read_text())
+    assert validation["side_view"] == warning
+    assert validation["overall_status"] == "warn"
+    assert "Side-photo visual comparison is not performed." not in validation["not_verified"]
+
+
+def test_side_segmentation_failure_does_not_stop_main_generation(tmp_path, stub_glb):
+    inputs = capture_dir(tmp_path, targets_for(stub_glb))
+    capture_path = inputs / "capture.json"
+    record = json.loads(capture_path.read_text())
+    from test_side_view import test_photo, POINTS
+    test_photo().save(inputs / "main.png"); test_photo().save(inputs / "side.png")
+    record["landmarks"] = {**POINTS, "side": POINTS}
+    capture_path.write_text(json.dumps(record))
+    def no_gpu(image):
+        raise RuntimeError("no segmentation GPU")
+    result = run(tmp_path / "out", capture_dir=inputs, glb=stub_glb, side_mask_fn=no_gpu)
+    assert result["status"] == "complete"
+    assert result["stages"]["side_view"]["status"] == "unavailable"
+    assert "no segmentation GPU" in result["stages"]["side_view"]["message"]
+
+
+def test_main_only_capture_still_produces_a_mesh(tmp_path, stub_glb):
+    inputs = capture_dir(tmp_path, targets_for(stub_glb))
+    path = inputs / "capture.json"
+    record = json.loads(path.read_text()); record["photos"] = record["photos"][:1]
+    path.write_text(json.dumps(record)); (inputs / "side.png").unlink()
+    result = run(tmp_path / "out", capture_dir=inputs, glb=stub_glb)
+    assert result["status"] == "complete"
+    assert result["stages"]["side_view"]["status"] == "unavailable"
+    assert result["stages"]["side_view"]["message"] == "No side photo supplied."
 
 
 def test_incomplete_capture_stops_before_generation(tmp_path, stub_glb):

@@ -1,9 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { hasMainPhoto, photoEntries, photoRecords, sectionProblem, station, stubMeasurements, validMm, type CapturePhoto } from './capture';
+import { hasMainPhoto, photoEntries, photoRecords, sectionProblem, station, stubMeasurements, validMm, sideLandmarkRecord, type CapturePhoto } from './capture';
 
 describe('optional side photo handoff', () => {
   const photo = (name: string): CapturePhoto => ({ file: new File(['test'], name, { type: 'image/png' }), url: `blob:${name}`, width: 640, height: 480 });
   const main = photo('main.png'), side = photo('side.png');
+  it('exports independent side landmarks only with a photo and two valid distinct points', () => {
+    const start = { x: .2, y: .5 }, tip = { x: .8, y: .5 };
+    expect(sideLandmarkRecord(side, start, tip)).toEqual({ model_start: start, stub_endpoint: tip });
+    expect(sideLandmarkRecord(null, start, tip)).toBeUndefined();
+    expect(sideLandmarkRecord(side, start, null)).toBeUndefined();
+    expect(sideLandmarkRecord(side, start, start)).toBeUndefined();
+    expect(sideLandmarkRecord(side, { x: NaN, y: .5 }, tip)).toBeUndefined();
+    expect(sideLandmarkRecord(side, start, { x: 2, y: .5 })).toBeUndefined();
+  });
   it('allows the main photo alone and exports only its metadata and upload', () => {
     expect(hasMainPhoto([main, null])).toBe(true);
     expect(photoEntries([main, null]).map(entry => entry.photo.file)).toEqual([main.file]);

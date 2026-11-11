@@ -34,7 +34,8 @@ Record observed failures separately from suspected causes. Keep participant or t
 - **Code path:** `web/src/App.tsx` requires `photos.every(Boolean)` and uploads both files; `src/epics_geometry/pipeline.py` selects only the photo with role `generation`.
 - **Next test:** Run capture with a main photo only after deciding the intended workflow; verify capture export, server validation, generation, and review all handle an absent side photo. If keeping it required, specify and test the side-view analysis it supports.
 - **Change (2026-11-07):** the side photo is optional and shown beside results for human review only (`docs/side_photo.md`, Rohan's branch). It still does not affect generation or validation.
-- **Status:** Option A done. Automated side-view shape check (option B) still open.
+- **Change (2026-11-10, issue #9):** Option B adds independent side Start/Tip markers, local silhouette extraction, normalized width profiles and a warning-only comparison after scaling. Main-photo profile fitting estimates plausible viewing directions; conflicting perpendicular-view results are unavailable. Reports appear in validation.json, manifest.json and beside the side photo. Synthetic round-tube agreement and same-top-outline D-shaped mismatch are tested; a warning leaves the exported mesh unchanged.
+- **Status:** Options A and B implemented on `Rohan_Task5_Side_Check`; live GPU/approved-photo calibration remains pending. Thresholds are provisional; this is not a verification of anatomical accuracy. See `docs/side_photo.md`.
 
 ## TB-004 — Photo preparation (cut at Start) before TRELLIS: comparison
 
