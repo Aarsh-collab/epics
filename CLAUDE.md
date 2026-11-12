@@ -68,6 +68,8 @@ Python package `src/epics_geometry/` (install with `uv sync`; tests `uv run --wi
 | `scale.py` | `epics-scale`: length-only uniform scaling. |
 | `validate.py` | `epics-validate`: independent QA of length/circumferences. Its "not watertight" WARN counts UV-seam splits (position-merged meshes are watertight) — known quirk. |
 | `pipeline.py` | `epics-pipeline`: generate → (outer_shell) → scale → validate, writes `manifest.json` (input hash, model/seed/settings, stage statuses, `review_status: pending_human_review`). Statuses: `complete`, `cleanup_refused`, `alignment_ambiguous`, `validation_failed`, `error`… If the capture has `"preparation"`, uses `capture_dir/prep/prepared.png` after checking its sha256. |
+| `photo_quality.py` | Bad-photo gate: six CPU checks on the RMBG mask (blur, exposure, resolution, framing, segmentation, clutter). `POST /api/photo-quality`, soft/strict via `EPICS_QUALITY_MODE`, `review_token` acknowledgement. See `docs/photo_quality.md`. |
+| `side_view.py` | Warning-only side-photo width check after scaling (19 stations, camera direction from the main photo). See `docs/side_photo.md`. |
 | `server.py` | `epics-server`: FastAPI service, passcode auth, one GPU worker, job queue. |
 | `glb_io.py`, `synthetic.py`, `errors.py` | GLB loading, synthetic test meshes, shared errors. |
 
@@ -149,7 +151,7 @@ Last full test run (2026-11-11, after merging all three teammate branches): 183 
 - Remote: `origin https://github.com/Aarsh-collab/epics.git`. **The repository is public.** Never commit secrets, passcodes, tunnel URLs, participant or test photos, or generated meshes (`*.glb` is gitignored).
 - `main` is the shared branch. Work happened on `integrate-sol` and was fast-forwarded into `main`.
 
-## Where we left off (2026-11-04)
+## Where we left off (updated 2026-11-11)
 
 - **Roadmap doc:** "EPICS feature roadmap: difficulty and priority" (Claude Doc, https://claude.ai/artifact/SQTJadCpUMKE2eDRxUbrcR). It rates six features by difficulty and current importance.
 - **Suggested order:**
@@ -166,6 +168,17 @@ Last full test run (2026-11-11, after merging all three teammate branches): 183 
   6. Scale to more users. Step 1 is splitting GPU work from CPU work in the worker. Today `server.py` has one process with one worker thread, an in-memory `queue.Queue` (max 5, `EPICS_MAX_QUEUE`), `job.json` files on local disk, and one shared passcode. A real queue (Redis/Postgres), separate GPU and CPU worker containers, object storage, user accounts and Sol as extra capacity wait for real users and approvals.
 - **Teammate branches (merged 2026-11-11):** Rohan's side photo (#9), Samantha's photo gate (#6-#8; her commits were pushed from Rohan's laptop) and Nish's joined-rim follow-up are all on `main`. Nish's split now handles thicker walls (8%, 15%) and, when it can't split, refuses with "large hidden surface" instead of falsely reporting "cleaned" (#11 fixed). Rims with bumps or tilt only at the cut edge are still refused (safely). The split has **not** been tried on the real cut-photo meshes on the Spark (issue #10 stays open). The hidden-surface guard (>10% hidden in side views) runs on every single-wall mesh; watch for false refusals on real arms with deep creases.
 - **Spark access:** on 2026-11-07, `ssh compute` was refused ("tailnet policy does not permit you to SSH as user hithesh"). Restore it before deploying.
+- **Compute (2026-11-11):** the live site is down (Spark SSH refused). The compute people may allocate a Jetstream2 GPU VM, but nothing is guaranteed. ASU Sol (`sol/`, `-q public`, A100) has never actually been tried by the team and could unblock real-photo testing. It's worth checking.
+- **Current tasks (GitHub issues opened 2026-11-11, all doable without a GPU; the user assigns them on GitHub):**
+  - #12 (Samantha): RMBG-2.0 mask without CUDA (`transformers`, cuda/mps/cpu) behind a chooser, so photo prep, the gate and the side check run on laptops. Gated model: per-user HF token.
+  - #13 (Rohan): `EPICS_FAKE_GENERATE=<glb|synthetic>` passes `glb=` to `pipeline.run`, clearly marked fake in the manifest and UI. Then a full website click-through.
+  - #14 (Samantha, after #12): `epics-score-photos` CLI. Folder + `labels.csv` → `scores.csv` + `summary.md` (prep result, all gate metrics, side widths, false warnings/misses), plus `--make-bad-copies`. Used with 10–20 team-member arm photos to set real gate thresholds. Photos never committed.
+  - #15 (Nish): messy joined-rim test meshes (rim-only bumps or tilt, oval cross-section, uneven gap). Every case must split correctly or refuse, and a single wall with creases must still pass. Real tuning stays in #10.
+  - #16 (unnamed): our own x86 CUDA Docker image (`deploy/gpu/`) from `sol/setup_env.sh` steps, with a CPU-only target, so Jetstream/Sol/cloud works on day one. `deploy/spark/` unchanged.
+  - #17 (Rohan): OBJ (textured) and STL export in mm after scaling, Z-up, plus download buttons and an "Opening in Rhino" doc.
+  - #18 (unnamed): a stable URL. Compare a Cloudflare named tunnel, Tailscale Funnel, and Caddy on a public-IP VM; add scripts, with the token in a mode-600 file.
+  - Dropped by the user: splitting CPU/GPU workers, calibration-card detection, validator regression fixtures. Still open from before: #10 (real-mesh split test) and the old #1–#4.
+  - Don't put the user's name on tasks.
 
 ## Open work (next steps first)
 
