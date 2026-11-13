@@ -80,3 +80,25 @@ Record observed failures separately from suspected causes. Keep participant or t
 - Real TB-004 straight/oval meshes: **not rerun**. The documented `ssh compute`
   alias does not resolve on this Windows checkout. The Spark run and inspection
   remain required before closing issue #10. No real-mesh success is claimed.
+
+## Messy joined-rim regression coverage - issue #15 (2026-11-13)
+
+`tests/test_outer_shell.py` adds a deterministic helper and 24 joined-wall
+cases (12 configurations, each with shared-edge and bridging-band joins), plus
+two single-wall crease checks. Bumps use seeded Gaussian noise; tilt and noise
+modify only the rim ring, including the duplicated UV seam. The D-section's
+flat side varies along the length to avoid introducing a second planar base.
+
+Each input is checked for closed, consistently wound topology. A successful
+cleanup must preserve every original exterior triangle, remove the inner wall,
+add only triangles using the original rim vertices, and export one watertight,
+consistently wound component without duplicate faces. `measure_glb` length is
+compared with a separately capped original exterior. Refusal must raise
+`ShellError` with status `refused` and leave no `clean.glb`; both outcomes must
+leave source bytes unchanged. No cleanup algorithm or guard threshold changes.
+
+The matrix is intentionally bounded, not an exhaustive Cartesian product.
+Passing synthetic cases do not establish success on real cut-photo meshes.
+The real GLBs used for earlier timing checks are absent from this checkout, so
+real-mesh timings were not repeated. Production cleanup code is unchanged.
+Real cut-photo tuning and validation remain in #10.
