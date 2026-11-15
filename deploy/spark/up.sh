@@ -2,7 +2,7 @@
 # Start (or restart) the EPICS web service on the DGX Spark. Run on the Spark:
 #   bash ~/epics-app/repo/deploy/spark/up.sh
 # Runs epics-app:repair (deploy/spark/Dockerfile: the shared trellis2:flashattn-render image plus
-# manifold3d, built here when the Dockerfile changes) with this repo and ~/TRELLIS.2 mounted read-only. Only binds 127.0.0.1:8090; Tailscale Funnel provides the public HTTPS.
+# manifold3d, built here when the Dockerfile changes) with this repo and ~/TRELLIS.2 mounted read-only. Only binds 127.0.0.1:8090; deploy/spark/tunnel.sh provides public HTTPS.
 set -euo pipefail
 APP=${EPICS_APP_DIR:-$HOME/epics-app}
 IMAGE=${EPICS_IMAGE:-epics-app:repair}

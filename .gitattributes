@@ -1,0 +1,2 @@
+# Linux deployment scripts must retain LF in Windows checkouts.
+deploy/spark/*.sh text eol=lf

@@ -80,3 +80,15 @@ Record observed failures separately from suspected causes. Keep participant or t
 - Real TB-004 straight/oval meshes: **not rerun**. The documented `ssh compute`
   alias does not resolve on this Windows checkout. The Spark run and inspection
   remain required before closing issue #10. No real-mesh success is claimed.
+
+## TB-005 - Intermittent empty job JSON during status polling (2026-11-15)
+
+- Observed while validating issue #18: the full suite had 202 passing tests and
+  one failure in `test_discard_deletes_finished_job`. A request to the job-status
+  endpoint read an empty `job.json`, raising `JSONDecodeError` in `Jobs.read`.
+- Suspected cause: a reader may observe a file while a worker is rewriting it.
+  This is an inference from the empty read, not a confirmed concurrency diagnosis.
+- The unchanged server test module passed on rerun: 18 tests. An earlier full
+  run with the first 17 Funnel tests also passed (200 tests total).
+- Issue #18 does not change `server.py` or server tests. No server fix is included;
+  investigate atomic job-state writes separately if the failure recurs.
