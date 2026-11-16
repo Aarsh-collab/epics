@@ -110,3 +110,7 @@ uv run epics-measure-stub scaled.glb
 See [docs/stub_scaling.md](docs/stub_scaling.md) for capture requirements,
 measurement definitions, the method, the report statuses, and the validation
 log, including the first real TRELLIS.2 result.
+
+## Opening in Rhino
+
+Download and unzip the OBJ package, keeping the OBJ, MTL and texture files together. Import the OBJ or STL in millimetres; STL contains shape only. The GLB stores coordinates in metres. The model is Z-up, with Start at the bottom and Tip at the top. These are reference meshes for review, not validated clinical geometry.

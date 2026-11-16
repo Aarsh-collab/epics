@@ -190,6 +190,15 @@ def run(
                                     "(team decision) or try generation with --no-remesh.")
             return manifest
 
+        try:
+            from .export import export_formats
+            manifest["stages"]["export"] = export_formats(scaled, out_dir)
+        except Exception as exc:
+            for name in ("scaled.stl", "scaled_obj.zip"):
+                (out_dir / name).unlink(missing_ok=True)
+            manifest["stages"]["export"] = {"status": "warning", "message": str(exc)}
+            manifest["limitations"].append("OBJ/STL export failed; the scaled GLB is still available.")
+
         stage = "validate"
         validation = validate.evaluate(scaled, measurements, axis_mode="canonical")
         side_report = side_view.evaluate_capture(capture_dir, capture, to_scale, scaled, report, mask_fn=side_mask_fn)
