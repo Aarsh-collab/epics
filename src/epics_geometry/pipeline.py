@@ -80,6 +80,7 @@ def run(
     outer_shell: bool = False,
     overwrite: bool = False,
     side_mask_fn=None,
+    fake_generation: bool = False,
 ) -> dict:
     """Run every stage and return the manifest (also written to ``out_dir``).
 
@@ -88,6 +89,8 @@ def run(
     anywhere.
     """
     out_dir = Path(out_dir)
+    if fake_generation and glb is None:
+        raise ValueError("Fake generation requires a GLB")
     if out_dir.exists() and any(out_dir.iterdir()) and not overwrite:
         raise FileExistsError(f"{out_dir} is not empty; pass overwrite=True / --overwrite")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -144,6 +147,9 @@ def run(
                                                           model_input_path=out_dir / "model_input.png")
         else:
             manifest["stages"]["generate"] = {"skipped": True, "glb": str(glb)}
+            if fake_generation:
+                manifest["stages"]["generate"]["fake"] = True
+                manifest["limitations"].append("FAKE GENERATION: mesh did not come from this photo.")
         manifest["stages"]["generate"]["sha256"] = _sha256(Path(glb))
 
         stage = "outer_shell"
