@@ -16,3 +16,13 @@ epics-trellis-*.out
 runs/
 output/
 web/.test-output/
+
+# Server-local tunnel configuration (never sync credentials or deployed hostnames).
+cloudflare-token
+cloudflare-token.*
+public-hostname
+public-url
+tunnel-mode
+funnel-approved
+funnel-state.json
+funnel-state.tmp

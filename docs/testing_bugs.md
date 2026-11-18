@@ -102,3 +102,18 @@ Passing synthetic cases do not establish success on real cut-photo meshes.
 The real GLBs used for earlier timing checks are absent from this checkout, so
 real-mesh timings were not repeated. Production cleanup code is unchanged.
 Real cut-photo tuning and validation remain in #10.
+
+## TB-005 - Intermittent empty job JSON during status polling (2026-11-15)
+
+- Observed while validating issue #18: the full suite had 202 passing tests and
+  one failure in `test_discard_deletes_finished_job`. A request to the job-status
+  endpoint read an empty `job.json`, raising `JSONDecodeError` in `Jobs.read`.
+- Suspected cause: a reader may observe a file while a worker is rewriting it.
+  This is an inference from the empty read, not a confirmed concurrency diagnosis.
+- The unchanged server test module passed on rerun: 18 tests. An earlier full
+  run with the first 17 Funnel tests also passed (200 tests total).
+- Issue #18 does not change `server.py` or server tests. No server fix is included;
+  investigate atomic job-state writes separately if the failure recurs.
+- Follow-up (2026-11-18): the #13 merge made `Jobs._write` atomic (write a temp
+  file, then replace `job.json`). Not yet confirmed to remove the failure; note
+  any recurrence here.
