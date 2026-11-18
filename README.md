@@ -74,6 +74,37 @@ container `epics-app` reuses the `trellis2:flashattn-render` image, runs as `hit
 Local development: `EPICS_PASSCODE=dev EPICS_COOKIE_SECURE=0 uv run --extra server epics-server` (port 8000)
 and `cd web && npm run dev`, which proxies `/api` to it. Without CUDA, jobs stop at the generate stage.
 
+### Local photo preparation (Mac, Windows, or CPU-only Linux)
+
+Photo preparation, photo-quality checks, and side-photo silhouettes can run
+without TRELLIS or an NVIDIA GPU. RMBG-2.0 is a gated Hugging Face model, so
+each developer must create their own Hugging Face account, accept the licence on
+the [briaai/RMBG-2.0 model page](https://huggingface.co/briaai/RMBG-2.0), and log
+in locally. Never put a Hugging Face token in this repository.
+
+```bash
+uv sync --extra server --extra mask
+uv run huggingface-cli login
+EPICS_PASSCODE=dev EPICS_COOKIE_SECURE=0 uv run --extra server --extra mask epics-server
+```
+
+The model is downloaded on first use and runs on CUDA when available, then
+Apple Silicon MPS, then CPU. The server automatically keeps using TRELLIS's
+existing mask path on a CUDA host where TRELLIS.2 is installed. Set
+`EPICS_MASK_BACKEND=local` or `EPICS_MASK_BACKEND=trellis` to force a backend.
+Generation itself still needs TRELLIS and its supported GPU.
+
+To collect private calibration numbers without committing photos, put
+`labels.csv` beside the photos and run:
+
+```bash
+uv run --extra mask epics-score-photos /path/to/photos --make-bad-copies
+```
+
+This writes `scores.csv`, `summary.md`, and any deliberately degraded copies to
+`/path/to/photos/output/`. See [photo-quality calibration](docs/photo_quality.md)
+for the label columns. Keep that folder and all participant photos out of git.
+
 ## First scaling experiment
 
 This first stage sets **overall length only**. It applies one uniform scale factor

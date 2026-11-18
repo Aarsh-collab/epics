@@ -190,7 +190,7 @@ def evaluate_capture(capture_dir: Path | None, capture: dict | None, source: Pat
 
         main_data, side_data = photo_data(main), photo_data(side)
         matrix = scale_report["alignment"]["source_to_output_matrix_before_transverse_fit"]
-        main_mask_fn = mask_fn or photo_prep.trellis_mask
+        main_mask_fn = mask_fn or photo_prep.default_mask
         if capture.get("preparation"):
             prep = root / "prep"
             record = json.loads((prep / "prep.json").read_text())
@@ -204,7 +204,7 @@ def evaluate_capture(capture_dir: Path | None, capture: dict | None, source: Pat
                 alpha = np.asarray(image, dtype=float) / 255
             main_mask_fn = lambda image: alpha
         main_profile = photo_profile(main_data, landmarks, main_mask_fn, settings)
-        side_profile = photo_profile(side_data, side_points, mask_fn or photo_prep.trellis_mask, settings)
+        side_profile = photo_profile(side_data, side_points, mask_fn or photo_prep.default_mask, settings)
         result = compare(main_profile, side_profile, mesh_sections(source, matrix), mesh_sections(scaled), settings)
         result["input_sha256"] = {"main_photo": hashlib.sha256(main_data).hexdigest(), "side_photo": hashlib.sha256(side_data).hexdigest()}
         return result

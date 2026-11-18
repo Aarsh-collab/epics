@@ -229,7 +229,7 @@ class Preparations:
     def create(self, filename: str, data: bytes, start: dict, tip: dict, cap: str) -> dict:
         from . import photo_prep
 
-        mask_fn = self.mask_fn or photo_prep.trellis_mask
+        mask_fn = self.mask_fn or photo_prep.default_mask
         with self.lock:
             try:
                 prep = photo_prep.prepare(data, start, tip, mask_fn, photo_prep.PrepSettings(cap=cap))
