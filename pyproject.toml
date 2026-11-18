@@ -19,6 +19,11 @@ server = [
     "python-multipart>=0.0.9",
     "uvicorn>=0.29",
 ]
+mask = [
+    "torch>=2.2",
+    "torchvision>=0.17",
+    "transformers>=4.47,<5",
+]
 
 [project.scripts]
 epics-scale = "epics_geometry.scale:main"
@@ -29,6 +34,7 @@ epics-outer-shell = "epics_geometry.outer_shell:main"
 epics-generate = "epics_geometry.trellis_run:main"
 epics-pipeline = "epics_geometry.pipeline:main"
 epics-server = "epics_geometry.server:main"
+epics-score-photos = "epics_geometry.score_photos:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -41,4 +47,7 @@ packages = ["src/epics_geometry"]
 dev = [
     "pytest>=8,<10",
     "httpx>=0.27",
+    "fastapi>=0.110",
+    "python-multipart>=0.0.9",
+    "uvicorn>=0.29",
 ]

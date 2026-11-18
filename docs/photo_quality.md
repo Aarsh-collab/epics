@@ -87,6 +87,34 @@ false warnings and missed defects before selecting final thresholds; keep imager
 outside this public repository. The synthetic smooth-surface regression checks the
 implementation but cannot substitute for this dataset.
 
+## Calibration CLI
+
+`epics-score-photos FOLDER` reads `FOLDER/labels.csv` and writes
+`FOLDER/output/scores.csv` plus `summary.md`. It records preparation success or
+refusal, every masked and whole-photo quality status/metric, and the 19 normalized
+photo widths used by the side check. A failed mask or refused cut is recorded in
+the row instead of stopping the batch. Use `--no-mask` when only whole-photo blur
+and exposure are available, or `--make-bad-copies` to add Gaussian blur radii 2,
+4 and 8, brightness multipliers 0.3 and 0.15, and brightening multipliers 2 and 3.
+Generated copies stay under the output folder.
+
+The CSV must contain these columns:
+
+| Column | Meaning |
+|---|---|
+| `filename` | Photo file directly inside `FOLDER` |
+| `start_x`, `start_y`, `tip_x`, `tip_y` | Start and Tip as 0–1 fractions of the displayed photo |
+| `role` | `main` or `side` |
+| `pair` | Optional ID shared by main and side photos |
+| `human_ok` | `yes` or `no` human verdict |
+| `human_problem` | Free-text reason such as blurry, dark, or tip cut off |
+| `deliberate` | `yes` for a deliberately degraded copy, otherwise `no` |
+
+Only collect photos with the participant's consent. Keep photos, labels with
+identifying filenames, masks, tokens, and generated outputs outside this public
+repository (the repository's `output/` directories are ignored). Post only
+approved aggregate numbers when discussing calibration.
+
 ## Verification
 
 Synthetic tests cover sharp/blurred foregrounds, a smooth skin-like surface,

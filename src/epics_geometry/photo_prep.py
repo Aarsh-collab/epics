@@ -18,7 +18,10 @@ Spark that is the RMBG-2.0 model TRELLIS.2 itself uses (``trellis_mask``).
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import io
+import os
+import threading
 from dataclasses import asdict, dataclass, field
 from typing import Callable
 
@@ -261,6 +264,10 @@ def preview(prepared: Prepared, outline: bool = False, grey: int = 128) -> Image
 
 
 _mask_model = None
+_local_mask_model = None
+_local_mask_device = None
+_local_mask_torch = None
+_local_mask_lock = threading.Lock()
 
 
 def trellis_mask(image: Image.Image) -> np.ndarray:
@@ -273,3 +280,73 @@ def trellis_mask(image: Image.Image) -> np.ndarray:
         _mask_model.cuda()
     out = _mask_model(image.copy())
     return np.asarray(out, dtype=np.float64)[..., 3] / 255
+
+
+def _load_local_mask_model():
+    """Load RMBG once, keeping optional laptop dependencies out of base imports."""
+    global _local_mask_model, _local_mask_device, _local_mask_torch
+    if _local_mask_model is None:
+        with _local_mask_lock:
+            if _local_mask_model is None:
+                try:
+                    import torch
+                    from transformers import AutoModelForImageSegmentation
+                except ImportError as exc:
+                    raise RuntimeError(
+                        "Local background removal is not installed. Run `uv sync --extra mask`, "
+                        "accept the briaai/RMBG-2.0 licence, and log in to Hugging Face."
+                    ) from exc
+                if torch.cuda.is_available():
+                    device = "cuda"
+                elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+                    device = "mps"
+                else:
+                    device = "cpu"
+                model = AutoModelForImageSegmentation.from_pretrained(
+                    "briaai/RMBG-2.0", trust_remote_code=True
+                )
+                _local_mask_model = model.to(device).eval()
+                _local_mask_device = device
+                _local_mask_torch = torch
+    return _local_mask_model, _local_mask_torch, _local_mask_device
+
+
+def local_mask(image: Image.Image) -> np.ndarray:
+    """Foreground alpha from RMBG-2.0 via Transformers on CUDA, MPS, or CPU."""
+    model, torch, device = _load_local_mask_model()
+    image = ImageOps.exif_transpose(image).convert("RGB")
+    original_size = image.size
+    pixels = np.asarray(image.resize((1024, 1024), Image.Resampling.BILINEAR), dtype=np.float32) / 255
+    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+    pixels = ((pixels - mean) / std).transpose(2, 0, 1)
+    tensor = torch.from_numpy(np.ascontiguousarray(pixels)).unsqueeze(0).to(device)
+    with torch.no_grad():
+        prediction = model(tensor)[-1].sigmoid().cpu()[0].squeeze()
+    values = prediction.numpy() if hasattr(prediction, "numpy") else np.asarray(prediction)
+    mask = Image.fromarray(np.asarray(values, dtype=np.float32), mode="F")
+    mask = mask.resize(original_size, Image.Resampling.BILINEAR)
+    return np.clip(np.asarray(mask, dtype=np.float64), 0, 1)
+
+
+def _trellis_available() -> bool:
+    try:
+        import torch
+        return importlib.util.find_spec("trellis2") is not None and torch.cuda.is_available()
+    except (ImportError, ValueError):
+        return False
+
+
+def mask_backend() -> str:
+    """Resolve the configured mask backend without loading either model."""
+    forced = os.environ.get("EPICS_MASK_BACKEND", "").strip().lower()
+    if forced and forced not in ("trellis", "local"):
+        raise ValueError("EPICS_MASK_BACKEND must be 'trellis' or 'local'")
+    if forced:
+        return forced
+    return "trellis" if _trellis_available() else "local"
+
+
+def default_mask(image: Image.Image) -> np.ndarray:
+    """Use TRELLIS on its CUDA host, otherwise the portable Transformers path."""
+    return (trellis_mask if mask_backend() == "trellis" else local_mask)(image)

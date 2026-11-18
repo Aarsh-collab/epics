@@ -1,9 +1,11 @@
 import io
+from contextlib import nullcontext
 
 import numpy as np
 import pytest
 from PIL import Image
 
+from epics_geometry import photo_prep
 from epics_geometry.photo_prep import PrepError, PrepSettings, png_bytes, prepare, preview
 
 BACKGROUND = np.array([40, 60, 200])
@@ -160,3 +162,91 @@ def test_preview_on_grey_with_face_outline():
     plain, marked = np.asarray(preview(prep)), np.asarray(preview(prep, outline=True))
     assert tuple(plain[0, 0]) == (128, 128, 128)
     assert (np.abs(plain.astype(int) - marked).sum(axis=-1) > 0).sum() > 0
+
+
+class FakeTensor:
+    def __init__(self, values):
+        self.values = np.asarray(values, dtype=np.float32)
+
+    def unsqueeze(self, axis):
+        return FakeTensor(np.expand_dims(self.values, axis))
+
+    def to(self, _device):
+        return self
+
+    def sigmoid(self):
+        return FakeTensor(1 / (1 + np.exp(-self.values)))
+
+    def cpu(self):
+        return self
+
+    def __getitem__(self, item):
+        return FakeTensor(self.values[item])
+
+    def squeeze(self):
+        return FakeTensor(np.squeeze(self.values))
+
+    def numpy(self):
+        return self.values
+
+
+class FakeTorch:
+    @staticmethod
+    def from_numpy(values):
+        return FakeTensor(values)
+
+    @staticmethod
+    def no_grad():
+        return nullcontext()
+
+
+class FakeModel:
+    def __init__(self):
+        self.inputs = []
+
+    def __call__(self, tensor):
+        self.inputs.append(tensor.values)
+        ramp = np.linspace(-4, 4, 1024, dtype=np.float32)
+        return [FakeTensor(np.broadcast_to(ramp, (1, 1, 1024, 1024)))]
+
+
+@pytest.mark.parametrize("mode", ["RGB", "RGBA"])
+def test_local_mask_mocked_model_pre_and_post_processing(monkeypatch, mode):
+    model = FakeModel()
+    monkeypatch.setattr(photo_prep, "_load_local_mask_model", lambda: (model, FakeTorch, "cpu"))
+    image = Image.new(mode, (37, 23), (10, 20, 30, 40) if mode == "RGBA" else (10, 20, 30))
+    result = photo_prep.local_mask(image)
+    assert result.shape == (23, 37)
+    assert 0 <= result.min() < result.max() <= 1
+    assert model.inputs[0].shape == (1, 3, 1024, 1024)
+    expected = (np.array([10, 20, 30]) / 255 - [0.485, 0.456, 0.406]) / [0.229, 0.224, 0.225]
+    assert np.allclose(model.inputs[0][0, :, 10, 10], expected, atol=1e-5)
+
+
+def test_local_mask_applies_exif_orientation(monkeypatch):
+    model = FakeModel()
+    monkeypatch.setattr(photo_prep, "_load_local_mask_model", lambda: (model, FakeTorch, "cpu"))
+    image = Image.new("RGB", (31, 17), "white")
+    image.getexif()[274] = 6
+    assert photo_prep.local_mask(image).shape == (31, 17)
+
+
+def test_mask_backend_override_and_auto(monkeypatch):
+    monkeypatch.setenv("EPICS_MASK_BACKEND", "local")
+    assert photo_prep.mask_backend() == "local"
+    monkeypatch.setenv("EPICS_MASK_BACKEND", "trellis")
+    assert photo_prep.mask_backend() == "trellis"
+    monkeypatch.setenv("EPICS_MASK_BACKEND", "wrong")
+    with pytest.raises(ValueError, match="EPICS_MASK_BACKEND"):
+        photo_prep.mask_backend()
+
+
+@pytest.mark.skipif(
+    __import__("os").environ.get("EPICS_RUN_RMBG") != "1",
+    reason="set EPICS_RUN_RMBG=1 after accepting the gated model licence",
+)
+def test_real_local_mask_model():
+    image = Image.new("RGB", (64, 48), "white")
+    result = photo_prep.local_mask(image)
+    assert result.shape == (48, 64)
+    assert 0 <= result.min() <= result.max() <= 1
