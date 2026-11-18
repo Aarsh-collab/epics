@@ -55,13 +55,14 @@ MAX_BODY_BYTES = 2 * MAX_PHOTO_BYTES + MAX_CAPTURE_BYTES + 64 * 1024
 PHOTO_FORMATS = {"JPEG", "PNG", "WEBP"}
 SAFE_NAME = re.compile(r"^[\w][\w .()+-]{0,127}$")
 # Files a client may download from a job's output folder.
-RESULT_FILES = ("scaled.glb", "generated.glb", "outer_shell.glb", "outer_shell_review.glb",
+RESULT_FILES = ("scaled.glb", "scaled_obj.zip", "scaled.stl", "generated.glb", "outer_shell.glb", "outer_shell_review.glb",
                 "manifest.json", "scale_report.json", "validation.json",
                 "measurements.json", "outer_shell_report.json", "prepared.png", "model_input.png")
 # Files a client may fetch from a preparation: previews on neutral grey, with and without the face outlined.
 PREP_FILES = ("preview.png", "preview_face.png", "prepared.png", "mask.png")
 PREP_CAPS = ("straight", "oval")
-MEDIA_TYPES = {".glb": "model/gltf-binary", ".png": "image/png", ".json": "application/json"}
+MEDIA_TYPES = {".glb": "model/gltf-binary", ".png": "image/png", ".json": "application/json",
+               ".stl": "model/stl", ".zip": "application/zip"}
 LOGIN_WINDOW_S = 15 * 60
 LOGIN_FAILS_PER_CLIENT = 10
 LOGIN_FAILS_TOTAL = 50
