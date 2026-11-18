@@ -1,55 +1,35 @@
 # Stable public URL options (issue #18)
 
-## Decision
+## Decision (2026-11-18)
 
-Choose **Tailscale Funnel**, conditional on the owner's approval and an
-appropriate account plan. It avoids a domain purchase and separate DNS setup,
-fits the current budget, and uses the existing Tailscale connection on Spark.
-This matches the [issue discussion](https://github.com/Aarsh-collab/epics/issues/18#issuecomment-6890873158).
-Lab approval and restored access remain pending. Scripts do not grant either.
+Use a **Cloudflare named tunnel on a domain the team buys**, set up when we move
+to Jetstream. Until then the Spark keeps the Cloudflare quick tunnel
+(`deploy/spark/tunnel.sh`), whose URL changes on every restart.
 
-- **Funnel:** available on all Tailscale plans, but the applicable plan must
-  permit institutional use and may have a cost. No purchased domain or public
-  IP is needed. Requires a Tailscale account, owner-approved node, MagicDNS,
-  HTTPS and Funnel policy. Setup: approve/configure the node, proxy its local
-  app with background Funnel, verify public HTTPS and transfers. On Spark the
-  lab controls these permissions; on Jetstream a team-controlled tailnet is an
-  option. Uses a ts.net address, with TLS at the node; beta and non-configurable
-  bandwidth limits require testing with uploads/downloads. DuckDNS does not
-  supply a custom Funnel hostname.
-- **Cloudflare named tunnel:** tunnel publication is available without a paid
-  Access plan; a domain may have registration costs unless provided. Requires
-  a Cloudflare account and compatible authorized domain/DNS configuration.
-  Setup: create the tunnel and published route, protect the connector token
-  in a mode-600 local file and start it. Works on Spark and Jetstream without
-  inbound public ports. TLS terminates at Cloudflare. Not selected because
-  suitable domain access is unconfirmed and Funnel avoids that dependency.
-  Cloudflare Access seat limits are separate from ordinary public website
-  visitor counts; do not interpret a 50-user Access plan as a 50-visitor cap.
-- **Caddy:** free software and automatic HTTPS; public VM/IP and domain costs
-  depend on institutional resources. Requires server/admin permission,
-  suitable DNS and inbound ports 80/443 for the standard setup. Setup: point
-  DNS at the public VM, configure firewall and proxy, persist certificate
-  storage. Not directly usable on private Spark; a strong Jetstream alternative
-  if public networking/hostname are supplied. Revisit when the allocation is
-  known. It is not inherently more expensive than Funnel.
+Tailscale Funnel was implemented and then removed: the Spark is on the lab's
+tailnet, which is not ours to publish through.
 
-## Delivery and remaining verification
+## Options compared
 
-See [Spark setup and rollback](spark/README.md). Quick Cloudflare tunneling is
-preserved as the default until a local Funnel opt-in exists and as an explicit
-rollback. No Cloudflare named-tunnel token is needed for the chosen option.
+- **Cloudflare named tunnel (chosen):** needs a Cloudflare account and a domain
+  whose DNS is on Cloudflare (registration cost). No paid Access plan is needed
+  to publish the app, and no inbound ports are opened on the VM. The connector
+  token must live in a mode-600 file outside the repo. TLS ends at Cloudflare, so
+  test photos only until consent and storage approvals exist. Cloudflare Access
+  seat limits are separate from ordinary visitor counts.
+- **Tailscale Funnel (rejected):** no domain needed, but it publishes through a
+  tailnet. On the Spark that tailnet belongs to the lab.
+- **Caddy on a public-IP VM:** free, automatic HTTPS with TLS ending on our VM.
+  Needs a public IP, a domain and inbound ports 80/443. A fallback if Jetstream
+  gives us public networking and we prefer not to route through Cloudflare.
 
-Only local scripts/docs and offline tests are delivered now. Approval,
-authorized server access, public TLS/passcode checks, upload/download performance,
-and two app-container restarts must be verified before issue #18 is complete.
-Only test photos are permitted pending consent/storage approvals. Nothing here
-changes the lab tailnet, machine enrollment, other sharing routes or services.
+## Still to do (on Jetstream)
 
-## Primary sources
+Buy the domain, create the named tunnel and its route, store the token in a
+mode-600 file, add a start script next to `tunnel.sh`, and verify that HTTPS,
+the passcode gate and the URL all survive app and VM restarts.
 
-- [Tailscale Funnel](https://tailscale.com/docs/features/tailscale-funnel)
-- [Funnel CLI and persistence](https://tailscale.com/docs/reference/tailscale-cli/funnel)
+## Sources
+
 - [Cloudflare published applications](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/routing-to-tunnel/)
 - [Caddy HTTPS setup](https://caddyserver.com/docs/quick-starts/https)
-

@@ -22,7 +22,3 @@ cloudflare-token
 cloudflare-token.*
 public-hostname
 public-url
-tunnel-mode
-funnel-approved
-funnel-state.json
-funnel-state.tmp

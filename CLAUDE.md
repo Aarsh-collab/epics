@@ -83,7 +83,7 @@ Other folders:
 - `schemas/`: JSON schema for the measurements. `examples/` holds `measurements.example.json`.
 - `output/` (gitignored): local inspection renders and GLBs made from test photos. Never commit it.
 
-Last full test run (2026-11-18, after merging #12–#15, #17, #18): 240 Python tests (1 skipped: real RMBG, needs `EPICS_RUN_RMBG=1`) and 16 web tests passing, clean web build, `deploy/spark/test-tunnel.sh` passing.
+Last full test run (2026-11-18, after merging #12–#15, #17, #18): 220 Python tests (1 skipped: real RMBG, needs `EPICS_RUN_RMBG=1`) and 16 web tests passing, clean web build.
 
 Merged 2026-11-18:
 - `photo_prep.default_mask` / `local_mask` (#12): RMBG-2.0 via `transformers` on cuda/mps/cpu (`uv sync --extra mask`, per-user HF login). Auto-picks `trellis_mask` on a CUDA host with TRELLIS.2; force with `EPICS_MASK_BACKEND=local|trellis`. Server prep and side check now use `default_mask`.
@@ -91,7 +91,7 @@ Merged 2026-11-18:
 - `EPICS_FAKE_GENERATE=/path.glb` (#13): worker passes `glb=` + `fake_generation=True`; manifest `generate.fake`, limitation line, red "Test mode" banner. `job.json` writes are now atomic. No `synthetic` option or delay; click-through not yet done.
 - `export.py` (#17): after scaling, `scaled_obj.zip` (OBJ+MTL+texture) and `scaled.stl`, both mm, Z-up; export failure is a warning. Not yet opened in Rhino.
 - Messy joined-rim tests (#15): 24 cases; flat/0.3 mm bumps/D-section/uneven/fragment split, 1 mm bumps and rim tilt refuse safely; creased single walls pass.
-- Stable URL (#18): `tunnel.sh` has `quick` (default) and `funnel` modes (`deploy/spark/funnel.py`, needs `~/epics-app/funnel-approved` = yes; never resets other sharing). Comparison in `deploy/stable-url-options.md`. Untested on a real server; needs lab approval.
+- Stable URL (#18): Nish's Tailscale Funnel setup was merged and then removed the same day (the Spark is on the lab's tailnet, not ours). Decision: Cloudflare named tunnel on a bought domain, set up on Jetstream (`deploy/stable-url-options.md`). The Spark keeps the quick tunnel.
 
 ### Photo preparation (`photo_prep.py`), on by default in the web app
 
