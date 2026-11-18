@@ -317,3 +317,127 @@ def test_concave_rim_cap_follows_loop():
     assert solid.volume() == pytest.approx(70)
     np.testing.assert_array_equal(surface.v[:len(vertices)], vertices)
     assert len(capped) - len(wall) == n - 2
+
+
+def joined_rim_case(*, join, bumps_mm=0, tilt_deg=0, shape="oval",
+                    gap=0.03, uneven=False, fragments=False):
+    """Joined walls in metres; only the first ring gets bumps/tilt.
+
+    Return the input parts and the original exterior body, without a base cap.
+    Shared joins include the duplicated UV seam vertex. Bridged joins use a
+    two-triangle-wide annulus, not disconnected overlapping walls.
+    """
+    v, f, uv = arm(a=32, b=24 if shape == "oval" else 28)[0]
+    v = v.copy()
+    n = SIZE["n_theta"]
+    if shape == "d":
+        # Vary the flat side along the limb: a D cross-section without
+        # a second long planar face that the scaler mistakes for a base.
+        limit = -0.014 * (1 + 0.3 * np.sin(np.pi * v[:, 2] / v[:, 2].max()))
+        v[:, 0] = np.maximum(v[:, 0], limit)
+    theta = np.arctan2(v[:, 1], v[:, 0])
+    gaps = gap + (0.06 * (1 + np.cos(theta)) if uneven else np.zeros(len(v)))
+    inner = v * (1 - gaps[:, None])
+    noise = np.random.default_rng(19).normal(0, bumps_mm / 1000, n)
+    for points in (v, inner):
+        points[:n, 2] += noise + points[:n, 0] * np.tan(np.deg2rad(tilt_deg))
+        points[n] = points[0]  # same position, different UV
+    if join == "shared":
+        inner[:n+1] = v[:n+1]
+    exterior = (v, f, uv)
+    parts = [exterior, (inner, f[:, ::-1], uv)]
+    if join == "band":
+        i = np.arange(n)
+        j = (i + 1) % n
+        faces = np.vstack((np.column_stack((j, i, n+i)),
+                           np.column_stack((j, n+i, n+j))))
+        parts.append((np.vstack((v[:n], inner[:n])), faces, np.zeros((2*n, 2))))
+    if fragments:
+        parts.append(sphere([0, 0, 55], 2))
+    return parts, exterior
+
+
+# Deliberately small matrix: isolated stressors plus combinations, both joins.
+MESSY_RIMS = [
+    pytest.param({}, id="flat-3pct"),
+    pytest.param(dict(gap=0.08), id="flat-8pct"),
+    pytest.param(dict(gap=0.15), id="flat-15pct"),
+    pytest.param(dict(bumps_mm=0.3), id="bumps-0.3mm"),
+    pytest.param(dict(bumps_mm=1), id="bumps-1mm"),
+    pytest.param(dict(tilt_deg=5), id="rim-tilt-5deg"),
+    pytest.param(dict(tilt_deg=15), id="rim-tilt-15deg"),
+    pytest.param(dict(shape="d"), id="d-section"),
+    pytest.param(dict(uneven=True), id="uneven-3-to-15pct"),
+    pytest.param(dict(fragments=True), id="hidden-fragment"),
+    pytest.param(dict(bumps_mm=0.3, tilt_deg=5, uneven=True,
+                      fragments=True), id="combined-oval"),
+    pytest.param(dict(shape="d", bumps_mm=1, tilt_deg=15,
+                      uneven=True, fragments=True), id="combined-d"),
+]
+
+
+def triangle_keys(vertices, faces):
+    # GLB positions are float32; ignore UV duplication, face order and winding.
+    xyz = np.round(np.asarray(vertices, dtype=np.float32).astype(float), 8)
+    return {tuple(sorted(map(tuple, tri))) for tri in xyz[faces]}
+
+
+@pytest.mark.parametrize("join", ["shared", "band"])
+@pytest.mark.parametrize("settings", MESSY_RIMS)
+def test_messy_joined_rim_splits_or_refuses(tmp_path, join, settings, record_property):
+    parts, (v, f, uv) = joined_rim_case(join=join, **settings)
+    source = write(tmp_path / "generated.glb", parts)
+    original_bytes = source.read_bytes()
+    original = load_instances(source)[0][0]
+    topology = trimesh.Trimesh(original.vertices, original.faces)
+    topology.merge_vertices(merge_tex=True, merge_norm=True)
+    assert topology.is_watertight and topology.is_winding_consistent
+    assert len(topology.split()) == 1 + int(settings.get("fragments", False))
+    target = tmp_path / "clean.glb"
+    try:
+        report = extract(source, target, tmp_path / "review.glb")
+    except ShellError as exc:
+        assert exc.report["status"] == "refused"
+        assert str(exc)
+        assert not target.exists()
+        record_property("outcome", "refused: " + str(exc))
+    else:
+        assert report["status"] == "cleaned"
+        split = report["repairs"]["outer_wall"]["joined_rim"]
+        assert split["inner_faces_removed"] == len(f)
+        assert report["kept_original_outer_faces"] == len(f)
+        out = load_instances(target)[0][0]
+        expected_faces = triangle_keys(v, f)
+        actual_faces = triangle_keys(out.vertices, out.faces)
+        assert len(actual_faces) == len(out.faces)  # no duplicate/stacked faces
+        assert expected_faces <= actual_faces
+        # Only a local base cap may be added; no inner-wall/fragments survive.
+        extra = actual_faces - expected_faces
+        rim = {tuple(p) for p in np.round(v[:SIZE["n_theta"]].astype(np.float32).astype(float), 8)}
+        assert extra and all(set(triangle) <= rim for triangle in extra)
+        mesh = trimesh.Trimesh(out.vertices, out.faces)
+        mesh.merge_vertices(merge_tex=True, merge_norm=True)
+        assert mesh.is_watertight and mesh.is_winding_consistent
+        assert len(mesh.split(only_watertight=False)) == 1
+        # A reference cap closes the original rim, preserving its geometry.
+        import manifold3d
+        cap_faces = np.asarray(manifold3d.triangulate([v[:SIZE["n_theta"], :2]]))[:, ::-1]
+        reference = write(tmp_path / "outer.glb", [(v, np.vstack((f, cap_faces)), uv)])
+        assert measure_glb(target)["length_mm"] == pytest.approx(
+            measure_glb(reference)["length_mm"], rel=1e-6, abs=1e-5)
+        record_property("outcome", "split")
+    assert source.read_bytes() == original_bytes
+
+
+@pytest.mark.parametrize("indent", [0.35, 0.65], ids=["crease", "deep-crease"])
+def test_single_wall_deep_crease_is_not_refused(tmp_path, indent):
+    parts = arm(indent=indent)
+    source, report = run(tmp_path, parts)
+    assert report["status"] == "cleaned"
+    assert report["walls"]["inner"] is None
+    assert "joined_rim" not in report["repairs"]["outer_wall"]
+    assert report["walls"]["hidden_area_fraction"] <= 0.10
+    assert closed(tmp_path / "clean.glb")
+    before = load_instances(source)[0][0]
+    after = load_instances(tmp_path / "clean.glb")[0][0]
+    assert triangle_keys(before.vertices, before.faces) == triangle_keys(after.vertices, after.faces)
