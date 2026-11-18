@@ -95,12 +95,13 @@ def _now() -> str:
 class Jobs:
     """Job folders on disk plus a single in-order worker thread."""
 
-    def __init__(self, data_dir: Path, *, max_queue: int, retention_hours: float, run=None):
+    def __init__(self, data_dir: Path, *, max_queue: int, retention_hours: float, run=None, fake_glb=None):
         self.root = Path(data_dir) / "jobs"
         self.root.mkdir(parents=True, exist_ok=True)
         self.max_queue = max_queue
         self.retention_s = retention_hours * 3600
         self.run = run or pipeline.run
+        self.fake_glb = fake_glb
         self.lock = threading.Lock()
         self.waiting: list[str] = []
         self.queue: queue.Queue[str] = queue.Queue()
@@ -129,7 +130,10 @@ class Jobs:
         return json.loads((self.dir(job_id) / "job.json").read_text())
 
     def _write(self, job: dict) -> None:
-        (self.root / job["id"] / "job.json").write_text(json.dumps(job, indent=2) + "\n")
+        path = self.root / job["id"] / "job.json"
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(job, indent=2) + "\n")
+        tmp.replace(path)
 
     def submit(self, capture: dict, photos: dict[str, bytes], options: dict, prep: Path | None = None) -> dict:
         with self.lock:
@@ -144,7 +148,8 @@ class Jobs:
             if prep is not None:
                 shutil.move(str(prep), input_dir / pipeline.PREP_DIR)
             job = {"id": job_id, "status": "queued", "created": _now(), "started": None,
-                   "finished": None, "options": options, "photo_quality": capture.get("photo_quality")}
+                   "finished": None, "options": options, "photo_quality": capture.get("photo_quality"),
+                   "fake_generation": self.fake_glb is not None}
             self._write(job)
             self.waiting.append(job_id)
             self.queue.put(job_id)
@@ -172,8 +177,9 @@ class Jobs:
 
             opts = job["options"]
             try:
+                extra = {"glb": self.fake_glb, "fake_generation": True} if self.fake_glb else {}
                 self.run(self.root / job_id / "out", capture_dir=self.root / job_id / "input",
-                         settings=TrellisSettings(remesh=opts["remesh"]), outer_shell=opts["outer_shell"])
+                         settings=TrellisSettings(remesh=opts["remesh"]), outer_shell=opts["outer_shell"], **extra)
             except Exception as exc:  # pipeline.run records its own errors; keep the worker alive regardless
                 job["error"] = f"{type(exc).__name__}: {exc}"
             with self.lock:
@@ -301,7 +307,7 @@ def _check_capture(capture: dict) -> list[str]:
 
 
 def _job_view(jobs: Jobs, job: dict) -> dict:
-    view = {k: job.get(k) for k in ("id", "status", "created", "started", "finished", "options", "error")}
+    view = {k: job.get(k) for k in ("id", "status", "created", "started", "finished", "options", "error", "fake_generation")}
     view["position"] = jobs.position(job["id"]) if job["status"] == "queued" else None
     view["photo_quality"] = job.get("photo_quality")
     out = jobs.root / job["id"] / "out"
@@ -320,6 +326,7 @@ def _job_view(jobs: Jobs, job: dict) -> dict:
             "validation": (manifest["stages"].get("validate") or {}).get("summary"),
             "limitations": manifest["limitations"],
             "side_view": manifest["stages"].get("side_view"),
+            "fake_generation": bool(manifest["stages"].get("generate", {}).get("fake")),
         }
     view["files"] = [name for name in RESULT_FILES if (out / name).is_file()]
     return view
@@ -327,13 +334,19 @@ def _job_view(jobs: Jobs, job: dict) -> dict:
 
 def create_app(passcode: str, data_dir: Path, *, web_dist: Path | None = None, max_queue: int = 5,
                retention_hours: float = 1, cookie_secure: bool = True, run=None, start_worker: bool = True,
-               prep_mask=None, quality_mode: str = "soft") -> FastAPI:
+               prep_mask=None, quality_mode: str = "soft", fake_glb: Path | None = None) -> FastAPI:
     if not passcode:
         raise ValueError("EPICS_PASSCODE must be set")
     if quality_mode not in ("soft", "strict"):
         raise ValueError("EPICS_QUALITY_MODE must be soft or strict")
     token = hmac.new(passcode.encode(), b"epics-session-v1", hashlib.sha256).hexdigest()
-    jobs = Jobs(data_dir, max_queue=max_queue, retention_hours=retention_hours, run=run)
+    if fake_glb is not None:
+        import logging
+        fake_glb = Path(fake_glb).resolve()
+        if not fake_glb.is_file():
+            raise ValueError("EPICS_FAKE_GENERATE must point to an existing GLB file")
+        logging.getLogger(__name__).warning("FAKE GENERATION ENABLED: results do not come from uploaded photos")
+    jobs = Jobs(data_dir, max_queue=max_queue, retention_hours=retention_hours, run=run, fake_glb=fake_glb)
     if start_worker:
         jobs.start()
     fails: dict[str, deque] = {}
@@ -563,6 +576,7 @@ def main() -> None:
         retention_hours=float(os.environ.get("EPICS_RETENTION_HOURS", "1")),
         cookie_secure=os.environ.get("EPICS_COOKIE_SECURE", "1") != "0",
         quality_mode=os.environ.get("EPICS_QUALITY_MODE", "soft"),
+        fake_glb=Path(os.environ["EPICS_FAKE_GENERATE"]) if os.environ.get("EPICS_FAKE_GENERATE") else None,
     )
     uvicorn.run(app, host=os.environ.get("EPICS_HOST", "0.0.0.0"), port=int(os.environ.get("EPICS_PORT", "8000")),
                 proxy_headers=True, forwarded_allow_ips="*")

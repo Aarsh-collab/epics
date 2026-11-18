@@ -45,3 +45,7 @@ so uploaded photos are visible to it in transit: use test photos only, not parti
 For a stable URL with TLS ending on the Spark, switch to Tailscale Funnel: the tailnet owner enables HTTPS
 certificates and Funnel in the admin console, someone with sudo runs `sudo tailscale set --operator=hithesh`
 once, then `docker rm -f epics-tunnel; tailscale funnel --bg 8090` (`https://nextlab-spark.tail007848.ts.net`).
+
+### Fake generation (local development only)
+
+Set EPICS_FAKE_GENERATE to an absolute path to a local test GLB to run the CPU pipeline without TRELLIS. The result and manifest are marked as fake; the GLB is unrelated to the uploaded photo. Leave this variable unset on the Spark and production deployments. Photo preparation and side checks still require their own mask model or test stub. Never commit test meshes.

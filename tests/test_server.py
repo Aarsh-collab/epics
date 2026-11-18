@@ -98,11 +98,32 @@ def test_capture_to_scaled_download(client, stub_glb):
     job = wait(client, response.json()["id"])
     assert job["result"]["status"] == "complete", job
     assert job["result"]["review_status"] == "pending_human_review"
+
     assert job["result"]["side_view"]["status"] == "unavailable"
     assert "scaled.glb" in job["files"]
     glb = client.get(f"/api/jobs/{job['id']}/files/scaled.glb")
     assert glb.status_code == 200 and glb.content[:4] == b"glTF"
     assert client.get(f"/api/jobs/{job['id']}/files/job.json").status_code == 404
+
+
+def test_fake_generation_is_visible_in_status_and_manifest(tmp_path, stub_glb):
+    client = TestClient(create_app(PASSCODE, tmp_path / "fake", cookie_secure=False, fake_glb=stub_glb))
+    login(client)
+    response = submit(client, capture(targets_for(stub_glb)))
+    assert response.status_code == 201
+    job = wait(client, response.json()["id"])
+    assert job["result"]["status"] == "complete"
+    assert job["result"]["fake_generation"] is True
+    assert "scaled.glb" in job["files"]
+    manifest = client.get(f"/api/jobs/{job['id']}/files/manifest.json").json()
+    assert manifest["stages"]["generate"]["fake"] is True
+    assert manifest["stages"]["generate"]["sha256"]
+    assert any("FAKE GENERATION" in line for line in manifest["limitations"])
+
+
+def test_fake_generation_requires_existing_mesh(tmp_path):
+    with pytest.raises(ValueError, match="existing GLB"):
+        create_app(PASSCODE, tmp_path / "data", fake_glb=tmp_path / "missing.glb")
 
 
 def test_rejects_bad_uploads(client, stub_glb):
